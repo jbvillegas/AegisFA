@@ -3,4 +3,11 @@
 	"dockerComposeFile": "docker-compose.yml",
 	"service": "backend",
 	"workspaceFolder": "/workspaces",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"GitHub.copilot"
+			]
+		}
+	}
 }
