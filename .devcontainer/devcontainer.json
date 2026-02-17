@@ -1,0 +1,6 @@
+{
+	"name": "AegisFA - Full Stack",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "backend",
+	"workspaceFolder": "/workspaces",
+}
