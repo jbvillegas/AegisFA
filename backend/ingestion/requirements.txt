@@ -6,4 +6,5 @@ openai
 pika
 torch
 transformers
-accelerate 
+accelerate
+bitsandbytes>=0.46.1 

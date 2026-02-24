@@ -16,12 +16,12 @@ def load_model():
         _tokenizer = AutoTokenizer.from_pretrained(model_name)
         _model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype = torch.float32,
-            device_map = "cpu",
-            low_cpu_mem_usage = True,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            low_cpu_mem_usage=True,
         )
         print("The model is loaded.")
-    return _model, _tokenizer 
+    return _model, _tokenizer
 
 def normalize_log_with_ai(source, raw_data):
     model, tokenizer = load_model()
