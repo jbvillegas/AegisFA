@@ -1,15 +1,8 @@
-from . import database 
-from datetime import datetime
+# Models are now managed in Supabase (PostgreSQL).
+# Table definitions live in the Supabase SQL schema migration.
+# This file is kept as a reference for the data structures.
 
-class LogEntry(database.Model):
-    __tablename__ = 'logs'
-
-    id = database.Column(database.Integer, primary_key=True)
-    source = database.Column(database.String(50))
-    raw_data = database.Column(database.JSON)
-    natural_language_summary = database.Column(database.Text)
-    normalized_data = database.Column(database.JSON)
-    timestamp = database.Column(database.DateTime)
-    created_at = database.Column(database.DateTime, default=datetime.timezone.utc) 
-
-
+# Tables:
+#   organizations, users, user_permissions, log_sources,
+#   raw_logs, normalized_events, correlation_rules, detections,
+#   incidents, incident_events, tasks, summaries, feedback

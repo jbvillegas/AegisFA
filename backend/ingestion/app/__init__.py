@@ -1,19 +1,18 @@
 from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from dotenv import load_dotenv
+from supabase import create_client, Client
 import os
 
-load_dotenv()
-database = SQLAlchemy()
+supabase_client: Client = None
 
 def create_app():
     app = Flask(__name__)
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
 
-    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
-
-    database.init_app(app)
+    global supabase_client
+    supabase_client = create_client(
+        os.environ['SUPABASE_URL'],
+        os.environ['SUPABASE_SERVICE_ROLE_KEY']
+    )
 
     from .routes import main
     app.register_blueprint(main)

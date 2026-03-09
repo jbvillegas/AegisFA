@@ -3,6 +3,7 @@ import json
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from .normalization import normalize_log as rule_based
+from .nlg_service import generate_natural_language_summary
 
 _model = None
 _tokenizer = None
@@ -64,5 +65,6 @@ def normalize_log_with_ai(source, raw_data):
     except Exception as e:
         print(f"Local model error: {e}")
         normalized = rule_based(source, raw_data)
-
+        
+    normalized['natural_language_summary'] = generate_natural_language_summary(source, normalized)
     return normalized

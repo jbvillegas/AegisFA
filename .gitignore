@@ -13,3 +13,9 @@ env/
 
 # IDE
 .vscode/
+
+# Claude working directory
+.claude/
+
+# Node Modules
+node_modules/

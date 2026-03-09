@@ -1,51 +1,34 @@
-version: '3.8'
-
 services:
   backend:
-    container_name: aegisfa-backend
     build:
       context: ../backend
       dockerfile: Dockerfile
     volumes:
-      - ../:/workspaces:cached
-    command: sleep infinity
-    depends_on:
-      - db
+      - ..:/workspaces:cached
+    ports:
+      - "5001:5001"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/postgres
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - USE_AI_NORMALIZATION=${USE_AI_NORMALIZATION:-false}
+    command: python /workspaces/backend/ingestion/run.py
     networks:
       - app-network
 
   frontend:
-    container_name: aegisfa-frontend
     build:
       context: ../frontend
       dockerfile: Dockerfile
-    volumes:
-      - ../frontend:/app:cached
-    command: npm start
     ports:
       - "3000:3000"
+    environment:
+      - REACT_APP_SUPABASE_URL=${SUPABASE_URL}
+      - REACT_APP_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
     depends_on:
       - backend
     networks:
       - app-network
-
-  db:
-    container_name: aegisfa-database 
-    image: postgres:latest
-    restart: unless-stopped
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: postgres
-    networks:
-      - app-network
-
-volumes:
-  postgres-data:
 
 networks:
   app-network:
