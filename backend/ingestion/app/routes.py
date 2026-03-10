@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from . import supabase_client
 from .normalization import normalize_log
 from .file_parser import parse_file
-from .threat_analysis import analyze_threats
+from .rag_service import analyze_threats
 from .storage import upload_file
 from datetime import datetime, timezone
 
@@ -112,7 +112,13 @@ def upload_log_file():
             'threat_level': analysis['threat_level'],
             'threats_found': analysis['threats_found'],
             'summary': analysis['summary'],
-            'detailed_findings': analysis['detailed_findings']
+            'detailed_findings': analysis['detailed_findings'],
+            'mitre_techniques': analysis.get('mitre_techniques'),
+            'attack_vector': analysis.get('attack_vector'),
+            'timeline': analysis.get('timeline'),
+            'impacted_assets': analysis.get('impacted_assets'),
+            'confidence_score': analysis.get('confidence_score'),
+            'remediation_steps': analysis.get('remediation_steps'),
         }).execute()
     except Exception as e:
         supabase_client.table('log_files').update({'status': 'failed'}).eq('id', file_id).execute()
@@ -128,7 +134,10 @@ def upload_log_file():
         'analysis': {
             'threat_level': analysis['threat_level'],
             'threats_found': analysis['threats_found'],
-            'summary': analysis['summary']
+            'summary': analysis['summary'],
+            'mitre_techniques': analysis.get('mitre_techniques'),
+            'attack_vector': analysis.get('attack_vector'),
+            'confidence_score': analysis.get('confidence_score'),
         }
     }), 201
 
