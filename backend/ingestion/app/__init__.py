@@ -7,7 +7,7 @@ supabase_client: Client = None
 def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
-
+    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
     global supabase_client
     supabase_client = create_client(
         os.environ['SUPABASE_URL'],
