@@ -58,7 +58,10 @@ def analyze_threats(log_entries, source_type):
             })
 
     threat_level = determine_threat_level(all_findings)
-    summary = f"Detected {len(all_findings)} potential threats across {len(log_entries)} log entries. Highest severity: {threat_level}."
+    try:
+        summary = generate_nlp_summary(all_findings, log_entries, source_type)
+    except Exception:
+        summary = f"Detected {len(all_findings)} potential threats across {len(log_entries)} log entries. Highest severity: {threat_level}."
 
     return {
         "threat_level": threat_level,
@@ -74,3 +77,41 @@ def determine_threat_level(findings):
         if level in severities:
             return level
     return "none"
+
+def generate_nlp_summary(all_findings, log_entries, source_type):
+    model, tokenizer = load_model()
+
+    system_prompt = (
+        "You are a security analyst writing a brief incident summary for your team. "
+        "Based on the threat findings and log data provided, write a clear 2-3 sentence "
+        "summary in plain English. Mention specific details like IPs, usernames, and "
+        "actions where available. Do not return JSON — write only a natural language paragraph."
+    )
+    user_prompt = (
+        f"Source type: {source_type}\n"
+        f"Total log entries analyzed: {len(log_entries)}\n"
+        f"Threat findings: {json.dumps(all_findings)}"
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    inputs = tokenizer(text, return_tensors="pt")
+
+    with torch.no_grad():
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=256,
+            temperature=0.3,
+            do_sample=True,
+            top_p=0.9,
+            pad_token_id=tokenizer.eos_token_id
+        )
+
+    new_tokens = outputs[0][inputs["input_ids"].shape[-1]:]
+    summary = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+    return summary
+
