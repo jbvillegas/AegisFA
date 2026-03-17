@@ -1,28 +1,12 @@
-"""
-Correlation Rules Engine for AegisFA.
-
-Evaluates parsed log entries against correlation rules stored in the database.
-Produces deterministic, auditable detections mapped to MITRE ATT&CK techniques.
-
-Supports 5 rule types:
-  - threshold:      count of matching events >= N per group within time window
-  - sequence:       ordered event chain within time window
-  - distinct_value: too many distinct values of a field per group
-  - existence:      any event matching a filter exists
-  - time_rate:      events/minute exceeds threshold
-"""
-
 import re
+import logging
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Optional
 
+
 from . import supabase_client
-
-
-# ---------------------------------------------------------------------------
-# Filter operators
-# ---------------------------------------------------------------------------
+from .timestamp_utils import parse_timestamp as _parse_timestamp
 
 _OPS = {
     "eq": lambda val, rule_val: val == rule_val,
@@ -33,54 +17,55 @@ _OPS = {
     "exists": lambda val, _: val is not None,
 }
 
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 def run_correlation(
     entries: list[dict],
     org_id: str,
-    file_id: str,
-) -> list[dict]:
-    """
-    Fetch active correlation rules, evaluate each against entries,
-    persist detections, and return results.
-    """
+    file_id: str,) -> list[dict]:
+
+    logger = logging.getLogger(__name__)
+
+    if len(entries) > 100000:
+        logger.warning(f"The file: {file_id} is a large datase. Performance may be slow due to excessive log count:({len(entries)})")
+
     rules = _fetch_rules(org_id)
     detections = []
 
     for rule in rules:
-        result = _evaluate_rule(rule, entries)
-        if result is not None:
-            # Save to database
-            detection_id = _save_detection(
-                org_id=org_id,
-                file_id=file_id,
-                rule=rule,
-                matched_indices=result["matched_indices"],
-                confidence=result["confidence"],
-                description=result["description"],
-            )
-            detections.append({
-                "detection_id": detection_id,
-                "rule_name": rule["name"],
-                "mitre_technique": rule.get("mitre_technique", ""),
-                "severity": rule.get("severity", "medium"),
-                "confidence": result["confidence"],
-                "matched_event_indices": result["matched_indices"],
-                "description": result["description"],
-            })
-
+        if len(entries) > 50000:
+            batch_size = 50000
+            for i in range(0, len(entries), batch_size):
+                batch = entries[i:i+batch_size]
+                result = _evaluate_rule(rule, batch)
+                if result is not None:
+                    # Adjust indices to account for batching
+                    result["matched_indices"] = [idx + i for idx in result["matched_indices"]]
+                    detection_id = _save_detection(
+                        org_id=org_id,
+                        file_id=file_id,
+                        rule=rule,
+                        matched_indices=result["matched_indices"],
+                        confidence=result["confidence"],
+                        description=result["description"],
+                    )
+                    detections.append({
+                        "detection_id": detection_id,
+                        "rule_name": rule["name"],
+                        "mitre_technique": rule.get("mitre_technique", ""),
+                        "severity": rule.get("severity", "medium"),
+                        "confidence": result["confidence"],
+                        "matched_event_indices": result["matched_indices"],
+                        "description": result["description"],
+                    })
+        
     return detections
 
-
-# ---------------------------------------------------------------------------
-# Rule fetching
-# ---------------------------------------------------------------------------
+_rule_cache = {}
 
 def _fetch_rules(org_id: str) -> list[dict]:
-    """Fetch org-specific rules + global defaults (org_id IS NULL)."""
+
+    if org_id in _rule_cache:
+        return _rule_cache[org_id]
+    
     org_rules = (
         supabase_client.table("correlation_rules")
         .select("*")
@@ -93,141 +78,120 @@ def _fetch_rules(org_id: str) -> list[dict]:
         .is_("org_id", "null")
         .execute()
     )
-    return (default_rules.data or []) + (org_rules.data or [])
+    rules = (default_rules.data or []) + (org_rules.data or [])
+    _rule_cache[org_id] = rules
+    return rules
 
+_EVALUATORS = {}
 
-# ---------------------------------------------------------------------------
-# Rule evaluation dispatcher
-# ---------------------------------------------------------------------------
-
-_EVALUATORS = {}  # populated below
-
-
-def _evaluate_rule(rule: dict, entries: list[dict]) -> Optional[dict]:
-    """Dispatch to the appropriate evaluator based on rule_logic['type']."""
+def _validate_rule_logic(rule: dict) -> bool: 
     logic = rule.get("rule_logic", {})
     rule_type = logic.get("type")
-    evaluator = _EVALUATORS.get(rule_type)
-    if evaluator is None:
+
+    if rule_type not in _EVALUATORS:
+        return False
+    
+    if rule_type == "threshold":
+        return "filter" in logic and "threshold" in logic
+    elif rule_type == "sequence":
+        return "steps" in logic and isinstance(logic["steps"], list) and len(logic["steps"]) > 0
+    elif rule_type == "distinct_value":
+        return "distinct_field" in logic and "distinct_threshold" in logic
+    elif rule_type == "existence":
+        return "filter" in logic and isinstance(logic["filter"], list) and len(logic["filter"]) > 0
+    elif rule_type == "time_rate":
+        return "rate_per_minute" in logic
+    return False
+
+def _evaluate_rule(rule: dict, entries: list[dict]) -> Optional[dict]:
+    
+    logger = logging.getLogger(__name__)
+
+    try: 
+        logic = rule.get("rule_logic", {})
+        rule_type = logic.get("type")
+
+        if not _validate_rule_logic(rule):
+            logger.warning(f"Invalid logic for rule {rule['id']}: {logic}")
+            return None
+        evaluator = _EVALUATORS.get(rule_type)
+        if evaluator is None:
+            logger.warning(f"No evaluator found for rule type '{rule_type}' in rule {rule['id']}")
+            return None
+        return evaluator(logic, entries)
+    except Exception as e:
+        logger.error(f"Error evaluating rule {rule['id']}: {e}")
         return None
-    return evaluator(logic, entries)
-
-
-# ---------------------------------------------------------------------------
-# Filter & grouping helpers
-# ---------------------------------------------------------------------------
 
 def _entry_matches_filter(entry: dict, filters: list[dict]) -> bool:
-    """Check if an entry matches ALL filter conditions (AND)."""
     for condition in filters:
         field = condition.get("field", "")
         op = condition.get("op", "eq")
         rule_val = condition.get("value")
         entry_val = entry.get(field)
+        negate = condition.get("negate", False)
 
         op_fn = _OPS.get(op)
         if op_fn is None:
             return False
-        if not op_fn(entry_val, rule_val):
+        
+        matches = op_fn(entry_val, rule_val)
+        if negate:
+            matches = not matches
+        if not matches:
             return False
+        
     return True
 
 
 def _filter_entries(
     entries: list[dict], filters: list[dict]
 ) -> list[tuple[int, dict]]:
-    """Return (original_index, entry) for entries matching the filters."""
     return [
         (i, e) for i, e in enumerate(entries) if _entry_matches_filter(e, filters)
     ]
-
 
 def _group_entries(
     indexed_entries: list[tuple[int, dict]],
     group_by: list[str],
 ) -> dict[tuple, list[tuple[int, dict]]]:
-    """Partition indexed entries by group_by field values."""
     groups = defaultdict(list)
     for idx, entry in indexed_entries:
         key = tuple(entry.get(f, "") for f in group_by)
         groups[key].append((idx, entry))
     return dict(groups)
 
-
-# ---------------------------------------------------------------------------
-# Timestamp helpers
-# ---------------------------------------------------------------------------
-
-_TS_FIELDS = ("timestamp", "Timestamp", "time", "Time", "datetime", "received_at")
-_TS_FORMATS = (
-    "%Y-%m-%dT%H:%M:%SZ",
-    "%Y-%m-%dT%H:%M:%S%z",
-    "%Y-%m-%dT%H:%M:%S.%fZ",
-    "%Y-%m-%dT%H:%M:%S.%f%z",
-    "%Y-%m-%d %H:%M:%S",
-    "%m/%d/%Y %H:%M:%S",
-)
-
-
-def _parse_timestamp(entry: dict) -> Optional[datetime]:
-    """Try to parse a timestamp from common field names and formats."""
-    raw = None
-    for field in _TS_FIELDS:
-        if field in entry and entry[field]:
-            raw = str(entry[field])
-            break
-    if raw is None:
-        return None
-
-    # Try fromisoformat first (handles most ISO 8601)
-    try:
-        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        return dt
-    except (ValueError, TypeError):
-        pass
-
-    # Try common formats
-    for fmt in _TS_FORMATS:
-        try:
-            return datetime.strptime(raw, fmt)
-        except (ValueError, TypeError):
-            continue
-    return None
-
-
 def _entries_within_window(
     indexed_entries: list[tuple[int, dict]], window_seconds: Optional[int]
 ) -> bool:
-    """Check if all entries fall within the time window."""
+
     if window_seconds is None:
         return True
     timestamps = [_parse_timestamp(e) for _, e in indexed_entries]
     timestamps = [t for t in timestamps if t is not None]
     if len(timestamps) < 2:
-        return True  # Can't verify window, assume ok
+        return True 
     span = (max(timestamps) - min(timestamps)).total_seconds()
     return span <= window_seconds
 
-
-# ---------------------------------------------------------------------------
-# Confidence calculation
-# ---------------------------------------------------------------------------
-
-def _compute_confidence(base: float, actual: int, threshold: int) -> float:
-    """Scale confidence based on how much actual exceeds threshold."""
+def _compute_confidence(base: float, actual: int, threshold: int, severity: str = "medium") -> float:
+    
     if threshold <= 0:
         return min(base, 1.0)
+    
     ratio = actual / threshold
-    adjusted = base * min(ratio, 2.0) / 2.0 + base / 2.0
-    return min(adjusted, 1.0)
+    severity_multiplier = {"critical": 1.2, "high": 1.1, "medium": 1.0, "low":0.8}.get(severity, 1.0)
 
+    if ratio >= 2.0:
+        adjusted = base * 0.8 + 0.2
+    elif ratio >= 1.0:
+        adjusted = base * (0.5 + 0.5 * ratio)
+    else:
+        adjusted = base * ratio
 
-# ---------------------------------------------------------------------------
-# Type-specific evaluators
-# ---------------------------------------------------------------------------
+    return min(adjusted * severity_multiplier, 1.0) 
 
 def _evaluate_threshold(logic: dict, entries: list[dict]) -> Optional[dict]:
-    """Fires when count of matching events per group >= threshold."""
     filters = logic.get("filter", [])
     group_by = logic.get("group_by", [])
     threshold = logic.get("threshold", 1)
@@ -261,7 +225,6 @@ def _evaluate_threshold(logic: dict, entries: list[dict]) -> Optional[dict]:
 
 
 def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
-    """Fires when entries matching steps appear in chronological order."""
     steps = logic.get("steps", [])
     group_by = logic.get("group_by", [])
     window = logic.get("window_seconds")
@@ -270,18 +233,14 @@ def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
     if not steps:
         return None
 
-    # Find matching entries for each step
     step_matches = []
     for step_filter in steps:
         step_matches.append(_filter_entries(entries, step_filter))
 
-    # If any step has zero matches, sequence can't complete
     if any(len(sm) == 0 for sm in step_matches):
         return None
 
-    # Group entries across all steps
     if group_by:
-        # Build per-group step matches
         all_groups = defaultdict(lambda: [[] for _ in steps])
         for step_idx, matches in enumerate(step_matches):
             for idx, entry in matches:
@@ -291,17 +250,14 @@ def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
         all_groups = {"_all": step_matches}
 
     for group_key, group_step_matches in all_groups.items():
-        # Check each step has at least one match in this group
         if any(len(sm) == 0 for sm in group_step_matches):
             continue
 
-        # Greedy: pick earliest entry for each step in order
         sequence_indices = []
         last_ts = None
         valid = True
 
         for step_entries in group_step_matches:
-            # Sort by index (proxy for chronological order)
             sorted_entries = sorted(step_entries, key=lambda x: x[0])
             found = False
             for idx, entry in sorted_entries:
@@ -318,7 +274,6 @@ def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
         if not valid:
             continue
 
-        # Check time window
         if window is not None and len(sequence_indices) >= 2:
             first_entries = [(i, entries[i]) for i in sequence_indices]
             if not _entries_within_window(first_entries, window):
@@ -336,7 +291,6 @@ def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
 
 
 def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> Optional[dict]:
-    """Fires when distinct values of a field per group >= threshold."""
     filters = logic.get("filter", [])
     group_by = logic.get("group_by", [])
     distinct_field = logic.get("distinct_field", "")
@@ -372,9 +326,7 @@ def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> Optional[dict]
             }
     return None
 
-
 def _evaluate_existence(logic: dict, entries: list[dict]) -> Optional[dict]:
-    """Fires if ANY entry matches the filter."""
     filters = logic.get("filter", [])
     base_conf = logic.get("base_confidence", 0.7)
 
@@ -391,7 +343,6 @@ def _evaluate_existence(logic: dict, entries: list[dict]) -> Optional[dict]:
 
 
 def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
-    """Fires when events/minute exceeds threshold."""
     filters = logic.get("filter", [])
     group_by = logic.get("group_by", [])
     rate_per_minute = logic.get("rate_per_minute", 10)
@@ -435,20 +386,48 @@ def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
             }
     return None
 
+def _evaluate_composite(logic: dict, entries: list[dict]) -> Optional[dict]:
+    """Evaluate composite rules with AND/OR logic."""
+    operator = logic.get("operator", "AND")  # AND or OR
+    sub_rules = logic.get("rules", [])
+    
+    results = []
+    for sub_rule in sub_rules:
+        result = _evaluate_rule(sub_rule, entries)
+        results.append(result)
+    
+    if operator == "AND":
+        if all(r is not None for r in results):
+            # Merge all matched indices
+            all_indices = set()
+            for r in results:
+                all_indices.update(r["matched_indices"])
+            return {
+                "matched_indices": list(all_indices),
+                "confidence": sum(r["confidence"] for r in results) / len(results),
+                "description": f"Composite AND rule: all {len(sub_rules)} conditions matched"
+            }
+    elif operator == "OR":
+        if any(r is not None for r in results):
+            all_indices = set()
+            for r in results:
+                if r is not None:
+                    all_indices.update(r["matched_indices"])
+            return {
+                "matched_indices": list(all_indices),
+                "confidence": max(r["confidence"] for r in results if r is not None),
+                "description": f"Composite OR rule: at least one of {len(sub_rules)} conditions matched"
+            }
+    return None
 
-# Register evaluators
 _EVALUATORS = {
     "threshold": _evaluate_threshold,
     "sequence": _evaluate_sequence,
     "distinct_value": _evaluate_distinct_value,
     "existence": _evaluate_existence,
     "time_rate": _evaluate_time_rate,
+    "composite": _evaluate_composite,
 }
-
-
-# ---------------------------------------------------------------------------
-# Persistence
-# ---------------------------------------------------------------------------
 
 def _save_detection(
     org_id: str,
@@ -463,7 +442,7 @@ def _save_detection(
         "org_id": org_id,
         "rule_id": rule["id"],
         "file_id": file_id,
-        "event_ids": matched_indices,
+        "matched_indices": matched_indices,
         "confidence": round(confidence, 4),
         "severity": rule.get("severity", "medium"),
         "description": description,

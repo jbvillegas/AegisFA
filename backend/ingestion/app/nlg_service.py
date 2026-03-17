@@ -1,7 +1,4 @@
-"""Goal: to generate natual language summary of the logs to help engineers understand what happened during the incident"""
-
 def generate_natural_language_summary(source: str, normalized_data: dict) -> str:
-    """Convert normalized log to humna-redable summary"""
 
     event_id = normalized_data.get("event_id", "unknown event")
     user = normalized_data.get("user", "unknown user")

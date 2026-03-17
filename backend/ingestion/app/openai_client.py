@@ -5,7 +5,6 @@ _client = None
 
 
 def get_openai_client() -> OpenAI:
-    """Return a singleton OpenAI client instance."""
     global _client
     if _client is None:
         api_key = os.getenv("OPENAI_API_KEY")
@@ -16,7 +15,6 @@ def get_openai_client() -> OpenAI:
 
 
 def get_embedding(text: str, model: str = "text-embedding-3-small") -> list[float]:
-    """Generate an embedding vector for the given text."""
     client = get_openai_client()
     response = client.embeddings.create(input=text, model=model)
     return response.data[0].embedding

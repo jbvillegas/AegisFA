@@ -1,4 +1,3 @@
-"""Supabase client for database interactions."""
 from supabase import create_client, Client
 import os
 from typing import Optional, Dict, List

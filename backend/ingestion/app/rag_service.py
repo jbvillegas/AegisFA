@@ -1,44 +1,17 @@
-"""
-RAG-based threat analysis and incident summary generation.
-
-Replaces the local Qwen model with OpenAI gpt-4o-mini + pgvector retrieval
-of MITRE ATT&CK context for forensic incident summaries.
-"""
-
 import json
 
 from . import supabase_client
 from .openai_client import get_openai_client, get_embedding
-
-
-# ---------------------------------------------------------------------------
-# Public API — drop-in replacement for threat_analysis.analyze_threats
-# ---------------------------------------------------------------------------
 
 def analyze_threats(
     log_entries: list[dict],
     source_type: str,
     detections: list[dict] = None,
 ) -> dict:
-    """
-    Analyze log entries for security threats using RAG.
-
-    Three-phase pipeline:
-      1. Detect threats via gpt-4o-mini
-      2. Retrieve relevant MITRE ATT&CK techniques from pgvector
-      3. Generate enriched incident summary with MITRE + correlation context
-
-    Returns a dict matching the extended analysis_results schema.
-    """
+    
     client = get_openai_client()
-
-    # Phase 1 — threat detection
     findings = _detect_threats(client, log_entries, source_type)
-
-    # Phase 2 — RAG retrieval of MITRE techniques
     mitre_context = _retrieve_mitre_techniques(findings, source_type)
-
-    # Phase 3 — enriched incident summary (with correlation detections)
     summary_result = _generate_incident_summary(
         client, log_entries, source_type, findings, mitre_context,
         detections=detections,
@@ -59,14 +32,7 @@ def analyze_threats(
         "remediation_steps": summary_result["remediation_steps"],
     }
 
-
-# ---------------------------------------------------------------------------
-# Phase 1 — Threat detection
-# ---------------------------------------------------------------------------
-
 def _detect_threats(client, log_entries: list[dict], source_type: str) -> list[dict]:
-    """Ask gpt-4o-mini to identify threats in the log entries."""
-    # Cap at 200 entries to stay within context window
     entries_json = json.dumps(log_entries[:200], default=str)
 
     system_prompt = (
@@ -105,18 +71,12 @@ def _detect_threats(client, log_entries: list[dict], source_type: str) -> list[d
             "severity": "low",
             "description": "Analysis could not parse model response.",
         }]
-
-
-# ---------------------------------------------------------------------------
-# Phase 2 — MITRE ATT&CK retrieval via pgvector
-# ---------------------------------------------------------------------------
-
+    
 def _retrieve_mitre_techniques(
     findings: list[dict],
     source_type: str,
 ) -> list[dict]:
-    """Embed findings as a query and search pgvector for matching MITRE techniques."""
-    # Build a semantic query from the threat findings
+    
     query_parts = [f"Security log analysis of {source_type} logs."]
     for finding in findings[:10]:
         query_parts.append(
@@ -124,7 +84,6 @@ def _retrieve_mitre_techniques(
         )
     query_text = "\n".join(query_parts)
 
-    # Generate embedding and search pgvector
     query_embedding = get_embedding(query_text)
 
     result = supabase_client.rpc(
@@ -138,11 +97,6 @@ def _retrieve_mitre_techniques(
 
     return result.data if result.data else []
 
-
-# ---------------------------------------------------------------------------
-# Phase 3 — Enriched incident summary generation
-# ---------------------------------------------------------------------------
-
 def _generate_incident_summary(
     client,
     log_entries: list[dict],
@@ -151,11 +105,7 @@ def _generate_incident_summary(
     mitre_context: list[dict],
     detections: list[dict] = None,
 ) -> dict:
-    """
-    Using threat findings + retrieved MITRE techniques + correlation
-    detections as context, generate a structured incident summary.
-    """
-    # Format MITRE context
+
     mitre_text = ""
     if mitre_context:
         mitre_parts = []
@@ -168,7 +118,6 @@ def _generate_incident_summary(
             )
         mitre_text = "Relevant MITRE ATT&CK techniques:\n" + "\n".join(mitre_parts)
 
-    # Format correlation detections
     detection_text = ""
     if detections:
         det_parts = []
@@ -244,11 +193,6 @@ def _generate_incident_summary(
                 "Update security policies",
             ],
         }
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 def _determine_threat_level(findings: list[dict]) -> str:
     """Return the highest severity found across all findings."""

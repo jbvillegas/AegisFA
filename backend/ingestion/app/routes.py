@@ -4,7 +4,8 @@ from .normalization import normalize_log
 from .file_parser import parse_file
 from .rag_service import analyze_threats
 from .correlation_engine import run_correlation
-from .storage import upload_file
+from .timeline_service import get_file_timeline, get_org_timeline
+from .storage import upload_file, download_file
 from datetime import datetime, timezone
 
 main = Blueprint('main', __name__)
@@ -16,7 +17,6 @@ def ingest():
     raw_data = data.get('raw_data')
     timestamp = data.get('timestamp', datetime.now(timezone.utc).isoformat())
 
-    # 1. Insert raw log
     raw_result = supabase_client.table('raw_logs').insert({
         'org_id': data.get('org_id'),
         'source_id': data.get('source_id'),
@@ -26,7 +26,6 @@ def ingest():
 
     raw_log_id = raw_result.data[0]['id']
 
-    # 2. Normalize and insert normalized event
     normalized = normalize_log(source, raw_data)
     norm_result = supabase_client.table('normalized_events').insert({
         'org_id': data.get('org_id'),
@@ -43,8 +42,8 @@ def ingest():
     }), 201
 
 @main.route('/upload', methods=['POST'])
+
 def upload_log_file():
-    # Validate file is present
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
 
@@ -60,19 +59,16 @@ def upload_log_file():
 
     file_bytes = file.read()
 
-    # 1. Parse the file into individual log entries
     try:
         entries = parse_file(file_bytes, file.filename)
     except Exception as e:
         return jsonify({'error': f'Failed to parse file: {str(e)}'}), 400
 
-    # 2. Upload raw file to Supabase Storage
     try:
         storage_path = upload_file(file_bytes, file.filename, org_id)
     except Exception as e:
         return jsonify({'error': f'Failed to upload file to storage: {str(e)}'}), 500
 
-    # 3. Create log_files record with status "analyzing"
     try:
         file_record = supabase_client.table('log_files').insert({
             'filename': file.filename,
@@ -87,7 +83,6 @@ def upload_log_file():
     except Exception as e:
         return jsonify({'error': f'Failed to save file record: {str(e)}'}), 500
 
-    # 4. Insert each parsed entry into raw_logs
     try:
         for entry in entries:
             supabase_client.table('raw_logs').insert({
@@ -99,21 +94,18 @@ def upload_log_file():
         supabase_client.table('log_files').update({'status': 'failed'}).eq('id', file_id).execute()
         return jsonify({'error': f'Failed to store log entries: {str(e)}'}), 500
 
-    # 5. Run correlation engine (non-fatal if it fails)
     try:
         detections = run_correlation(entries, org_id, file_id)
     except Exception as e:
         detections = []
         print(f"Correlation engine warning: {e}")
 
-    # 6. Run RAG threat analysis (with correlation context)
     try:
         analysis = analyze_threats(entries, source_type, detections=detections)
     except Exception as e:
         supabase_client.table('log_files').update({'status': 'failed'}).eq('id', file_id).execute()
         return jsonify({'error': f'Threat analysis failed: {str(e)}'}), 500
 
-    # 7. Store analysis results
     try:
         supabase_client.table('analysis_results').insert({
             'file_id': file_id,
@@ -133,7 +125,6 @@ def upload_log_file():
         supabase_client.table('log_files').update({'status': 'failed'}).eq('id', file_id).execute()
         return jsonify({'error': f'Failed to store analysis: {str(e)}'}), 500
 
-    # 8. Mark file as completed
     supabase_client.table('log_files').update({'status': 'completed'}).eq('id', file_id).execute()
 
     return jsonify({
@@ -163,6 +154,174 @@ def get_analysis(file_id):
     return jsonify(result.data[0]), 200
 
 
+@main.route('/analyze/<file_id>', methods=['POST'])
+def analyze_stored_file(file_id):
+    """Re-analyze a previously uploaded file using raw_logs already in the DB."""
+    file_result = supabase_client.table('log_files').select('id, org_id, source_type').eq('id', file_id).execute()
+    if not file_result.data:
+        return jsonify({'error': 'File not found'}), 404
+
+    file_record = file_result.data[0]
+    org_id = file_record['org_id']
+    source_type = file_record['source_type']
+
+    logs_result = supabase_client.table('raw_logs').select('payload').eq('file_id', file_id).execute()
+    entries = [r['payload'] for r in (logs_result.data or []) if r.get('payload')]
+
+    if not entries:
+        return jsonify({'error': 'No log entries found for this file'}), 404
+
+    try:
+        detections = run_correlation(entries, org_id, file_id)
+    except Exception as e:
+        detections = []
+        print(f"Correlation engine warning: {e}")
+
+    try:
+        analysis = analyze_threats(entries, source_type, detections=detections)
+    except Exception as e:
+        return jsonify({'error': f'Threat analysis failed: {str(e)}'}), 500
+
+    try:
+        supabase_client.table('analysis_results').insert({
+            'file_id': file_id,
+            'threat_level': analysis['threat_level'],
+            'threats_found': analysis['threats_found'],
+            'summary': analysis['summary'],
+            'detailed_findings': analysis['detailed_findings'],
+            'mitre_techniques': analysis.get('mitre_techniques'),
+            'attack_vector': analysis.get('attack_vector'),
+            'timeline': analysis.get('timeline'),
+            'impacted_assets': analysis.get('impacted_assets'),
+            'confidence_score': analysis.get('confidence_score'),
+            'remediation_steps': analysis.get('remediation_steps'),
+            'correlation_detections': detections,
+        }).execute()
+    except Exception as e:
+        return jsonify({'error': f'Failed to store analysis: {str(e)}'}), 500
+
+    supabase_client.table('log_files').update({'status': 'completed'}).eq('id', file_id).execute()
+
+    return jsonify({
+        'file_id': file_id,
+        'entry_count': len(entries),
+        'detections': detections,
+        'detection_count': len(detections),
+        'analysis': {
+            'threat_level': analysis['threat_level'],
+            'threats_found': analysis['threats_found'],
+            'summary': analysis['summary'],
+            'mitre_techniques': analysis.get('mitre_techniques'),
+            'attack_vector': analysis.get('attack_vector'),
+            'confidence_score': analysis.get('confidence_score'),
+        }
+    }), 201
+
+
+@main.route('/analyze-from-storage', methods=['POST'])
+def analyze_from_storage():
+    """Download a file from Supabase Storage by path and run full analysis."""
+    data = request.get_json()
+    if not data:
+        return jsonify({'error': 'JSON body required'}), 400
+
+    org_id = data.get('org_id')
+    filename = data.get('filename')
+    source_type = data.get('source_type')
+
+    if not org_id or not filename or not source_type:
+        return jsonify({'error': 'org_id, filename, and source_type are required'}), 400
+
+    if source_type not in {'windows', 'firewall', 'auth', 'syslog', 'custom'}:
+        return jsonify({'error': 'source_type must be one of: windows, firewall, auth, syslog, custom'}), 400
+
+    storage_path = f"{org_id}/{filename}"
+
+    try:
+        file_bytes = download_file(storage_path)
+    except Exception as e:
+        return jsonify({'error': f'Failed to download file from storage: {str(e)}'}), 404
+
+    try:
+        entries = parse_file(file_bytes, filename)
+    except Exception as e:
+        return jsonify({'error': f'Failed to parse file: {str(e)}'}), 400
+
+    try:
+        file_record = supabase_client.table('log_files').insert({
+            'filename': filename,
+            'org_id': org_id,
+            'source_type': source_type,
+            'storage_path': storage_path,
+            'status': 'analyzing',
+            'entry_count': len(entries)
+        }).execute()
+        file_id = file_record.data[0]['id']
+    except Exception as e:
+        return jsonify({'error': f'Failed to create file record: {str(e)}'}), 500
+
+    try:
+        for entry in entries:
+            supabase_client.table('raw_logs').insert({
+                'org_id': org_id,
+                'payload': entry,
+                'file_id': file_id
+            }).execute()
+    except Exception as e:
+        supabase_client.table('log_files').update({'status': 'failed'}).eq('id', file_id).execute()
+        return jsonify({'error': f'Failed to store log entries: {str(e)}'}), 500
+
+    try:
+        detections = run_correlation(entries, org_id, file_id)
+    except Exception as e:
+        detections = []
+        print(f"Correlation engine warning: {e}")
+
+    try:
+        analysis = analyze_threats(entries, source_type, detections=detections)
+    except Exception as e:
+        supabase_client.table('log_files').update({'status': 'failed'}).eq('id', file_id).execute()
+        return jsonify({'error': f'Threat analysis failed: {str(e)}'}), 500
+
+    try:
+        supabase_client.table('analysis_results').insert({
+            'file_id': file_id,
+            'threat_level': analysis['threat_level'],
+            'threats_found': analysis['threats_found'],
+            'summary': analysis['summary'],
+            'detailed_findings': analysis['detailed_findings'],
+            'mitre_techniques': analysis.get('mitre_techniques'),
+            'attack_vector': analysis.get('attack_vector'),
+            'timeline': analysis.get('timeline'),
+            'impacted_assets': analysis.get('impacted_assets'),
+            'confidence_score': analysis.get('confidence_score'),
+            'remediation_steps': analysis.get('remediation_steps'),
+            'correlation_detections': detections,
+        }).execute()
+    except Exception as e:
+        supabase_client.table('log_files').update({'status': 'failed'}).eq('id', file_id).execute()
+        return jsonify({'error': f'Failed to store analysis: {str(e)}'}), 500
+
+    supabase_client.table('log_files').update({'status': 'completed'}).eq('id', file_id).execute()
+
+    return jsonify({
+        'file_id': file_id,
+        'filename': filename,
+        'storage_path': storage_path,
+        'entry_count': len(entries),
+        'detections': detections,
+        'detection_count': len(detections),
+        'analysis': {
+            'threat_level': analysis['threat_level'],
+            'threats_found': analysis['threats_found'],
+            'summary': analysis['summary'],
+            'mitre_techniques': analysis.get('mitre_techniques'),
+            'attack_vector': analysis.get('attack_vector'),
+            'confidence_score': analysis.get('confidence_score'),
+        }
+    }), 201
+
+
 @main.route('/files', methods=['GET'])
 def list_files():
     org_id = request.args.get('org_id')
@@ -179,11 +338,6 @@ def list_files():
 def health():
     return jsonify({'status': 'ok'}), 200
 
-
-# ------------------------------------------------------------------
-# Correlation Rules CRUD
-# ------------------------------------------------------------------
-
 @main.route('/rules', methods=['GET'])
 def list_rules():
     org_id = request.args.get('org_id')
@@ -194,7 +348,6 @@ def list_rules():
     default_rules = supabase_client.table('correlation_rules').select('*').is_('org_id', 'null').execute()
     all_rules = (default_rules.data or []) + (org_rules.data or [])
     return jsonify(all_rules), 200
-
 
 @main.route('/rules', methods=['POST'])
 def create_rule():
@@ -219,7 +372,6 @@ def create_rule():
 
     return jsonify(result.data[0]), 201
 
-
 @main.route('/rules/<rule_id>', methods=['PUT'])
 def update_rule(rule_id):
     data = request.get_json()
@@ -236,7 +388,6 @@ def update_rule(rule_id):
 
     return jsonify(result.data[0]), 200
 
-
 @main.route('/rules/<rule_id>', methods=['DELETE'])
 def delete_rule(rule_id):
     result = supabase_client.table('correlation_rules').delete().eq('id', rule_id).execute()
@@ -245,11 +396,6 @@ def delete_rule(rule_id):
         return jsonify({'error': 'Rule not found'}), 404
 
     return jsonify({'deleted': rule_id}), 200
-
-
-# ------------------------------------------------------------------
-# Detections
-# ------------------------------------------------------------------
 
 @main.route('/detections', methods=['GET'])
 def list_detections():
@@ -265,3 +411,77 @@ def list_detections():
 
     result = query.execute()
     return jsonify(result.data), 200
+
+
+# ---------------------------------------------------------------------------
+# Timeline endpoints
+# ---------------------------------------------------------------------------
+
+@main.route('/timeline/<file_id>', methods=['GET'])
+def file_timeline(file_id):
+    """Unified timeline for a single uploaded file."""
+    file_result = supabase_client.table('log_files').select('id').eq('id', file_id).execute()
+    if not file_result.data:
+        return jsonify({'error': 'File not found'}), 404
+
+    start = request.args.get('start')
+    end = request.args.get('end')
+    severity = request.args.get('severity')
+    event_type = request.args.get('type')
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 100, type=int)
+
+    if severity and severity not in ('low', 'medium', 'high', 'critical'):
+        return jsonify({'error': 'severity must be one of: low, medium, high, critical'}), 400
+
+    if event_type and event_type not in ('event', 'detection', 'ai_narrative'):
+        return jsonify({'error': 'type must be one of: event, detection, ai_narrative'}), 400
+
+    if page < 1:
+        return jsonify({'error': 'page must be >= 1'}), 400
+
+    result = get_file_timeline(
+        file_id=file_id,
+        start=start,
+        end=end,
+        severity=severity,
+        event_type=event_type,
+        page=page,
+        page_size=page_size,
+    )
+    return jsonify(result), 200
+
+
+@main.route('/timeline', methods=['GET'])
+def org_timeline():
+    """Cross-file timeline for an entire organization."""
+    org_id = request.args.get('org_id')
+    if not org_id:
+        return jsonify({'error': 'org_id is required'}), 400
+
+    start = request.args.get('start')
+    end = request.args.get('end')
+    severity = request.args.get('severity')
+    event_type = request.args.get('type')
+    page = request.args.get('page', 1, type=int)
+    page_size = request.args.get('page_size', 100, type=int)
+
+    if severity and severity not in ('low', 'medium', 'high', 'critical'):
+        return jsonify({'error': 'severity must be one of: low, medium, high, critical'}), 400
+
+    if event_type and event_type not in ('event', 'detection', 'ai_narrative'):
+        return jsonify({'error': 'type must be one of: event, detection, ai_narrative'}), 400
+
+    if page < 1:
+        return jsonify({'error': 'page must be >= 1'}), 400
+
+    result = get_org_timeline(
+        org_id=org_id,
+        start=start,
+        end=end,
+        severity=severity,
+        event_type=event_type,
+        page=page,
+        page_size=page_size,
+    )
+    return jsonify(result), 200

@@ -39,13 +39,11 @@ def analyze_threats(log_entries, source_type):
                 pad_token_id=tokenizer.eos_token_id
             )
 
-        # Decode only the NEW tokens (skip the input prompt)
         new_tokens = outputs[0][inputs["input_ids"].shape[-1]:]
         response = tokenizer.decode(new_tokens, skip_special_tokens=True)
         print(f"MODEL RESPONSE:\n{response}")
 
         try:
-            # Try to extract JSON from the generated response
             json_match = re.search(r'(\{.*\})', response, re.DOTALL)
             if json_match:
                 parsed = json.loads(json_match.group(1))
