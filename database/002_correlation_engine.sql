@@ -1,10 +1,5 @@
--- ============================================================
--- AegisFA: Correlation Engine schema additions
--- Run this in Supabase SQL Editor (Dashboard > SQL Editor)
--- ============================================================
-
--- 1. Add unique constraint on correlation_rules.name for seed upserts
-`DO $$
+-- SUPABASE MIGRATION: Add correlation engine tables and columns
+DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_constraint WHERE conname = 'correlation_rules_name_unique'

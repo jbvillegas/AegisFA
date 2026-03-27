@@ -1,9 +1,4 @@
--- ============================================================
--- AegisFA: pgvector + MITRE ATT&CK knowledge base setup
--- + missing tables (log_files, analysis_results)
--- Run this in Supabase SQL Editor (Dashboard > SQL Editor)
--- ============================================================
-
+-- SUPABASE MIGRATION: Add pgvector extension and MITRE ATT&CK tables for RAG pipeline
 -- 1. Enable pgvector extension
 create extension if not exists vector;
 
