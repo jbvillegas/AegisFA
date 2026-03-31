@@ -121,7 +121,7 @@ def _build_actionable_insights_payload(
     logs=None,
     source_type='custom',
 ):
-    """Build unified actionable-insights payload from threats/detections/logs."""
+    
     threats = threats or []
     detections = detections or []
     logs = logs or []
