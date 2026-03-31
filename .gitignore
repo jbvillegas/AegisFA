@@ -19,3 +19,10 @@ env/
 
 # Node Modules
 node_modules/
+
+# Training data
+data/cicids2019/
+data/*.zip
+data/*.csv
+*.pkl  # Model files
+.models/
