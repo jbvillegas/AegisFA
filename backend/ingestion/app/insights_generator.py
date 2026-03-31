@@ -68,10 +68,7 @@ class InsightsGenerator:
         return response.strip()
     
     def generate_threat_insights(self, threats: List[Dict]) -> List[Dict]:
-        #Args:
-        #   threats: List of threat detection dictionaries
-        #Returns:
-        #   List of threat insights with recommendations
+        
         insights = []
         
         for threat in threats:
@@ -120,9 +117,7 @@ class InsightsGenerator:
                                   threats: List[Dict],
                                   log_count: int = 0,
                                   correlation_data: Dict = None) -> Dict:
-        #Generate executive summary from multiple threats.
-        #Args: Threats: List of detected threats, log_count: Number of logs analyzed, correlation_data: Additional correlation data
-        #Returns: Executive summary with risk assessment and recommended actions
+        
         if not threats:
             return {
                 "status": "no_threats",
@@ -222,9 +217,7 @@ class InsightsGenerator:
         return plan
     
     def generate_investigation_guide(self, log_classification: Dict, threats: List[Dict]) -> Dict:
-        #Generate investigation guide based on log classification and detected threats.
-        #Args: log_classification: Classification of the log source, threats: List of detected threats
-        #Returns: Investigation guide with steps and focus areas
+    
         system_prompt = (
             "You are a forensic analyst. Based on the log classification and threats, "
             "create an investigation guide. Include:\n"

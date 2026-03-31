@@ -11,8 +11,8 @@ _TS_FORMATS = (
     "%m/%d/%Y %H:%M:%S",
 )
 
-def parse_iso_string(raw: str) -> Optional[datetime]:
-    """Parse an ISO 8601 string directly."""
+def parse_iso_string(raw: str) -> Optional[datetime]: #ISO 8601 only parser for strict timestamp fields
+    
     if not raw:
         return None
     try:
