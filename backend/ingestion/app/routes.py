@@ -5,12 +5,14 @@ from .file_parser import parse_file
 from .rag_service import analyze_threats
 from .correlation_engine import run_correlation
 from .timeline_service import get_file_timeline, get_org_timeline
-from .storage import upload_file, download_file
+from .storage import upload_file, download_file, upload_binary
 from .log_classifier import get_classifier
 from .insights_generator import get_insights_generator
+from .kaggle import prepare_cicids2019_training_bundle
 from datetime import datetime, timezone
 from time import perf_counter
 from uuid import uuid4
+from pathlib import Path
 import structlog 
 
 main = Blueprint('main', __name__)
@@ -50,10 +52,8 @@ def _get_request_id() -> str:
     g.request_id = generated
     return generated
 
-
 def _request_logger(**fields):
     return logger.bind(request_id=_get_request_id(), **fields)
-
 
 def _error_response(
     message: str,
@@ -80,7 +80,6 @@ def _normalize_severity(value: str) -> str:
     normalized = str(value).strip().lower()
     return normalized if normalized in _VALID_SEVERITIES else "medium"
 
-
 def _detections_to_threats(detections):
     threats = []
     for detection in detections or []:
@@ -102,7 +101,6 @@ def _detections_to_threats(detections):
         threat['indicators'] = [i for i in threat.get('indicators', []) if i]
     return threats
 
-
 def _insert_raw_logs_in_batches(entries, org_id, file_id):
     rows = [
         {
@@ -116,7 +114,6 @@ def _insert_raw_logs_in_batches(entries, org_id, file_id):
     for i in range(0, len(rows), RAW_LOG_INSERT_BATCH_SIZE):
         batch = rows[i:i + RAW_LOG_INSERT_BATCH_SIZE]
         supabase_client.table('raw_logs').insert(batch).execute()
-
 
 def _build_actionable_insights_payload(
     threats=None,
@@ -198,6 +195,15 @@ def _build_actionable_insights_payload(
         'incident_summary': incident_summary,
         'investigation_guide': investigation_guide,
     }
+
+
+def _safe_update_training_run(run_id: str | None, updates: dict):
+    if not run_id:
+        return
+    try:
+        supabase_client.table('training_runs').update(updates).eq('id', run_id).execute()
+    except Exception:
+        _request_logger(route='rf_train', run_id=run_id).exception('Failed to update training run status')
 
 @main.route('/ingest', methods=['POST'])
 def ingest():
@@ -373,6 +379,153 @@ def upload_log_file():
         'actionable_insights': actionable_insights,
         'request_id': _get_request_id(),
     }), 201
+
+
+@main.route('/rf/train', methods=['POST'])
+def train_rf_model():
+    log = _request_logger(route='train_rf_model')
+    payload = request.get_json(silent=True) or {}
+
+    org_id = payload.get('org_id')
+    if not org_id:
+        return _error_response('org_id is required', 400, 'VALIDATION_ERROR')
+
+    dataset_path = payload.get('dataset_path')
+    if not dataset_path:
+        return _error_response('dataset_path is required', 400, 'VALIDATION_ERROR')
+
+    random_seed = int(payload.get('seed', 42))
+    min_samples_per_class = int(payload.get('min_samples_per_class', 5))
+    max_rows = payload.get('max_rows')
+    max_rows = int(max_rows) if max_rows is not None else 120000
+    requested_by = payload.get('requested_by')
+    dataset_name = payload.get('dataset_name', 'CICIDS2019')
+
+    training_run_id = None
+    try:
+        run_record = supabase_client.table('training_runs').insert({
+            'org_id': org_id,
+            'status': 'running',
+            'dataset_name': dataset_name,
+            'dataset_path': dataset_path,
+            'split_policy': '70/15/15_stratified',
+            'seed': random_seed,
+            'requested_by': requested_by,
+            'started_at': datetime.now(timezone.utc).isoformat(),
+        }).execute()
+        if run_record.data:
+            training_run_id = run_record.data[0]['id']
+    except Exception as exc:
+        log.exception('Failed to create training run record')
+        return _error_response(
+            'Failed to create training run record. Ensure RF training migrations are applied.',
+            500,
+            'DATABASE_ERROR',
+            retryable=True,
+            details={'database_error': str(exc)},
+        )
+
+    try:
+        bundle = prepare_cicids2019_training_bundle(
+            dataset_path=dataset_path,
+            seed=random_seed,
+            min_samples_per_class=min_samples_per_class,
+            max_rows=max_rows,
+        )
+
+        classifier = get_classifier()
+        train_metrics = classifier.train(bundle['train_data'])
+        if train_metrics.get('error'):
+            raise ValueError(train_metrics['error'])
+
+        validation_metrics = classifier.evaluate(bundle['validation_data'])
+        if validation_metrics.get('error'):
+            raise ValueError(validation_metrics['error'])
+
+        test_metrics = classifier.evaluate(bundle['test_data'])
+        if test_metrics.get('error'):
+            raise ValueError(test_metrics['error'])
+
+        version = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S') + '-' + uuid4().hex[:8]
+        local_model_path = Path(__file__).parent / '.models' / f'rf_cicids2019_{version}.pkl'
+        local_model_path.parent.mkdir(parents=True, exist_ok=True)
+
+        save_result = classifier.save_model(str(local_model_path))
+        if save_result.get('error'):
+            raise ValueError(save_result['error'])
+
+        artifact_path = f"{org_id}/rf_models/rf_cicids2019_{version}.pkl"
+        with open(local_model_path, 'rb') as artifact:
+            upload_binary(artifact_path, artifact.read())
+
+        metadata = {
+            'seed': random_seed,
+            'split_policy': bundle['split_policy'],
+            'dataset_name': dataset_name,
+            'dataset_path': bundle['dataset_path'],
+            'label_column': bundle['label_column'],
+            'class_distribution': bundle['class_distribution'],
+            'train_samples': len(bundle['train_data']),
+            'validation_samples': len(bundle['validation_data']),
+            'test_samples': len(bundle['test_data']),
+        }
+
+        model_version_record = supabase_client.table('model_versions').insert({
+            'org_id': org_id,
+            'name': 'rf-cicids2019',
+            'version': version,
+            'status': 'active',
+            'artifact_bucket': 'ml-models',
+            'artifact_path': artifact_path,
+            'label_classes': train_metrics.get('categories', []),
+            'training_metadata': metadata,
+            'metrics': {
+                'train': train_metrics,
+                'validation': validation_metrics,
+                'test': test_metrics,
+            },
+            'created_by': requested_by,
+            'activated_at': datetime.now(timezone.utc).isoformat(),
+        }).execute()
+
+        model_version_id = model_version_record.data[0]['id'] if model_version_record.data else None
+
+        _safe_update_training_run(training_run_id, {
+            'status': 'completed',
+            'model_version_id': model_version_id,
+            'total_samples': (
+                len(bundle['train_data']) + len(bundle['validation_data']) + len(bundle['test_data'])
+            ),
+            'class_distribution': bundle['class_distribution'],
+            'train_metrics': train_metrics,
+            'validation_metrics': validation_metrics,
+            'test_metrics': test_metrics,
+            'completed_at': datetime.now(timezone.utc).isoformat(),
+        })
+
+        return jsonify({
+            'status': 'completed',
+            'training_run_id': training_run_id,
+            'model_version_id': model_version_id,
+            'model_version': version,
+            'artifact_path': artifact_path,
+            'split_policy': bundle['split_policy'],
+            'class_distribution': bundle['class_distribution'],
+            'metrics': {
+                'train': train_metrics,
+                'validation': validation_metrics,
+                'test': test_metrics,
+            },
+            'request_id': _get_request_id(),
+        }), 201
+    except Exception as exc:
+        _safe_update_training_run(training_run_id, {
+            'status': 'failed',
+            'error_message': str(exc),
+            'completed_at': datetime.now(timezone.utc).isoformat(),
+        })
+        log.exception('RF training failed')
+        return _error_response(str(exc), 500, 'TRAINING_ERROR', retryable=False)
 
 @main.route('/analysis/<file_id>', methods=['GET'])
 def get_analysis(file_id):

@@ -1,8 +1,6 @@
 import json
-
 from . import supabase_client
 from .openai_client import get_openai_client, get_embedding
-
 
 def _compact_log_entries(
     log_entries: list[dict],

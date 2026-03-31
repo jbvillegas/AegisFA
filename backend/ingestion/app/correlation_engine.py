@@ -253,7 +253,7 @@ def _save_detection(
     description: str,
     request_id: Optional[str] = None,
 ) -> Optional[str]:
-    """Insert a detection record and return its UUID."""
+    
     context = {
         "org_id": org_id,
         "file_id": file_id,
@@ -273,7 +273,7 @@ def _save_detection(
             "severity": rule.get("severity", "medium"),
             "description": description,
         }).execute()
-        return result.data[0]["id"]
+        return result.data[0]["id"] # Return the ID of the inserted detection
     except Exception as exc:
         _record_correlation_error(
             org_id=org_id,
@@ -551,7 +551,7 @@ def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
     return None
 
 def _evaluate_composite(logic: dict, entries: list[dict]) -> Optional[dict]:
-    """Evaluate composite rules with AND/OR logic."""
+    
     operator = logic.get("operator", "AND")  # AND or OR
     sub_rules = logic.get("rules", [])
     
