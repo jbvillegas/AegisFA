@@ -232,10 +232,13 @@ class LogClassifier: #LABELS
         
         # Optionally enrich with MITRE mapping
         if include_mitre:
-            from .rf_training_mapping import get_mitre_for_class
-            mitre_data = get_mitre_for_class(category)
+            from .rf_training_mapping import get_mitre_with_confidence
+            mitre_data = get_mitre_with_confidence(category, confidence)
             result["mitre_techniques"] = mitre_data.get("techniques", [])
             result["mitre_summary"] = mitre_data.get("summary", "")
+            result["mitre_severity"] = mitre_data.get("severity", "medium")
+            result["adjusted_severity"] = mitre_data.get("adjusted_severity", "medium")
+            result["confidence_score"] = mitre_data.get("confidence_score", confidence)
         
         return result
     
@@ -278,10 +281,13 @@ class LogClassifier: #LABELS
             
             # MITRE MAPPING
             if include_mitre:
-                from .rf_training_mapping import get_mitre_for_class
-                mitre_data = get_mitre_for_class(category)
+                from .rf_training_mapping import get_mitre_with_confidence
+                mitre_data = get_mitre_with_confidence(category, confidence)
                 result["mitre_techniques"] = mitre_data.get("techniques", [])
                 result["mitre_summary"] = mitre_data.get("summary", "")
+                result["mitre_severity"] = mitre_data.get("severity", "medium")
+                result["adjusted_severity"] = mitre_data.get("adjusted_severity", "medium")
+                result["confidence_score"] = mitre_data.get("confidence_score", confidence)
 
             results.append(result)
 
