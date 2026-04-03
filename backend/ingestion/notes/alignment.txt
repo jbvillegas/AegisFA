@@ -1,0 +1,31 @@
+Documentation aspects that are not fully aligned with the system requirements: 
+
+  1. Critical: FR-08 contradiction (RBAC/OAuth enforcement)
+  - Why: The new training endpoint trusts org_id from request body and does not enforce authenticated user/org binding at API level.
+  - Evidence:
+    - Endpoint accepts org_id from payload: routes.py
+    - New endpoint entrypoint: routes.py
+    - App uses Supabase service-role key (bypasses RLS): __init__.py
+  - Requirement impact: FR-08 requires secure OAuth + RBAC. Current route-level behavior allows cross-org misuse if endpoint is reachable without strict auth middleware.
+
+  2. High: NFR-02 contradiction risk (80% precision requirement not enforced)
+  - Why: Metrics are computed, but model is activated regardless of precision.
+  - Evidence:
+    - Validation metrics computed: routes.py
+    - Test metrics computed: routes.py
+    - Model status set directly to active: routes.py
+  - Requirement impact: NFR-02 says at least 80% precision on labeled datasets. Current flow records precision but does not block activation when below threshold.
+
+  3. Medium: FR-05 and UC-03 alignment risk (MITRE-oriented classification path)
+  - Why: RF training now learns arbitrary dataset labels (CICIDS classes), which are not MITRE technique IDs by default.
+  - Evidence:
+    - Dynamic class fitting from dataset labels: log_classifier.py
+    - CICIDS label mapping outputs attack names (not MITRE IDs): rf_training_mapping.py
+  - Requirement impact: FR-05 and UC-03 require MITRE ATT&CK mapping + severity/confidence. If this RF output is used directly without a MITRE mapping layer, behavior can drift from requirement intent.
+
+Aligned with the requirements: 
+
+  1. FR-10 (REST API): New endpoint is consistent with REST-style extension.
+  2. FR-01 and FR-02 core ingestion/storage: Existing upload/ingest flow for multi-source logs remains intact; RF changes are additive.
+  3. NFR-06 (containerization/CI-CD): No direct conflict introduced by these code changes.
+
