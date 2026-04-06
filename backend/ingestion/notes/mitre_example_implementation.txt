@@ -1,0 +1,107 @@
+"""
+Example usage of the MITRE-enriched classification pipeline
+Demonstrates how FR-05 and UC-03 requirements are now met
+"""
+
+# Example 1: High-confidence DDoS detection
+print("=" * 70)
+print("Example 1: High-Confidence DDoS Detection")
+print("=" * 70)
+
+from app.log_classifier import LogClassifier
+from app.rf_training_mapping import calculate_severity, get_mitre_with_confidence
+
+# Simulated classification result
+log_entry = {
+    "timestamp": "2026-03-31T14:23:45Z",
+    "source_ip": "192.168.1.100",
+    "destination_ip": "10.0.0.1",
+    "packet_count": 50000,
+    "byte_volume": 5000000,
+    "protocol": "UDP",
+    "port": 53
+}
+
+# RF classifier predicts "ddos" with 0.92 confidence
+classifier_output = {
+    "category": "ddos",
+    "confidence": 0.92,
+}
+
+# Enrich with MITRE data
+mitre_enriched = get_mitre_with_confidence(
+    classifier_output["category"],
+    classifier_output["confidence"]
+)
+
+print(f"\nClassification Result:")
+print(f"  Attack Type: {classifier_output['category'].upper()}")
+print(f"  RF Confidence: {classifier_output['confidence']:.1%}")
+print(f"\nMITRE ATT&CK Mapping:")
+print(f"  Techniques: {', '.join([t['id'] + ' (' + t['name'] + ')' for t in mitre_enriched['techniques']])}")
+print(f"  Tactic: Impact")
+print(f"  Summary: {mitre_enriched['summary']}")
+print(f"\nSeverity Assessment:")
+print(f"  Base Severity: {mitre_enriched['severity'].upper()}")
+print(f"  Adjusted Severity: {mitre_enriched['adjusted_severity'].upper()}")
+print(f"  Confidence Score: {mitre_enriched['confidence_score']:.3f}")
+
+# Example 2: Low-confidence Web Attack
+print("\n" + "=" * 70)
+print("Example 2: Low-Confidence Web Attack Detection")
+print("=" * 70)
+
+log_entry_2 = {
+    "timestamp": "2026-03-31T14:24:12Z",
+    "http_method": "POST",
+    "url_path": "/api/login",
+    "user_agent": "Mozilla/5.0",
+    "response_code": 403,
+    "payload_size": 256
+}
+
+# RF classifier predicts "web_attack_xss" with 0.45 confidence (uncertain)
+classifier_output_2 = {
+    "category": "web_attack_xss",
+    "confidence": 0.45,
+}
+
+mitre_enriched_2 = get_mitre_with_confidence(
+    classifier_output_2["category"],
+    classifier_output_2["confidence"]
+)
+
+print(f"\nClassification Result:")
+print(f"  Attack Type: {classifier_output_2['category'].upper()}")
+print(f"  RF Confidence: {classifier_output_2['confidence']:.1%} (LOW - requires manual review)")
+print(f"\nMITRE ATT&CK Mapping:")
+print(f"  Techniques: {', '.join([t['id'] + ' (' + t['name'] + ')' for t in mitre_enriched_2['techniques']])}")
+print(f"  Tactic: Initial Access")
+print(f"  Summary: {mitre_enriched_2['summary']}")
+print(f"\nSeverity Assessment:")
+print(f"  Base Severity: {mitre_enriched_2['severity'].upper()}")
+print(f"  Adjusted Severity: {mitre_enriched_2['adjusted_severity'].upper()} (DOWNGRADED due to low confidence)")
+print(f"  Confidence Score: {mitre_enriched_2['confidence_score']:.3f}")
+
+print("\n" + "=" * 70)
+print("Summary of FR-05 and UC-03 Compliance")
+print("=" * 70)
+print("""
+✓ FR-05 (Security Analysis):
+  - MITRE ATT&CK technique mapping for each classification
+  - Severity level assigned (low/medium/high/critical)
+  - Confidence-adjusted severity for decision support
+  - Attack summary for analyst context
+
+✓ UC-03 (Incident Detection & Response):
+  - Classifications map to MITRE techniques
+  - Severity guides prioritization
+  - Confidence scores indicate review requirements
+  - Actionable intelligence for response teams
+
+Key Features:
+  - Base severity from attack class definition
+  - Confidence-adjusted severity (low conf → downgrade)
+  - Consistent severity levels across all systems
+  - Enriched responses enable better triage and response
+""")

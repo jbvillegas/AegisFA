@@ -1,8 +1,6 @@
 import json
-
 from . import supabase_client
 from .openai_client import get_openai_client, get_embedding
-
 
 def _compact_log_entries(
     log_entries: list[dict],
@@ -10,7 +8,7 @@ def _compact_log_entries(
     max_fields: int = 16,
     max_value_len: int = 120,
 ) -> list[dict]:
-    """Build a compact, token-efficient representation of logs for LLM prompts."""
+    ##Compact log entries for more efficient LLM processing. Limits number of entries, fields, and value lengths.
     compacted: list[dict] = []
 
     for entry in log_entries[:max_entries]:
@@ -35,6 +33,7 @@ def analyze_threats(
     log_entries: list[dict],
     source_type: str,
     detections: list[dict] = None,
+    rf_context: dict | None = None,
 ) -> dict:
     
     client = get_openai_client()
@@ -46,10 +45,23 @@ def analyze_threats(
     )
 
     threat_level = _determine_threat_level(findings)
+    rf_risk_score = _score_rf_risk(rf_context)
+    blended_threat_level = _blend_threat_level(
+        base_level=threat_level,
+        detections=detections,
+        rf_context=rf_context,
+        rf_risk_score=rf_risk_score,
+    )
+    blended_threats_found = _blend_threats_found(
+        findings_count=len(findings),
+        detections=detections,
+        rf_context=rf_context,
+        rf_risk_score=rf_risk_score,
+    )
 
     return {
-        "threat_level": threat_level,
-        "threats_found": len(findings),
+        "threat_level": blended_threat_level,
+        "threats_found": blended_threats_found,
         "summary": summary_result["summary"],
         "detailed_findings": findings,
         "mitre_techniques": summary_result["mitre_techniques"],
@@ -58,6 +70,11 @@ def analyze_threats(
         "impacted_assets": summary_result["impacted_assets"],
         "confidence_score": summary_result["confidence_score"],
         "remediation_steps": summary_result["remediation_steps"],
+        "verdict_sources": {
+            "llm_findings": len(findings),
+            "correlation_detections": len(detections or []),
+            "rf_risk_score": rf_risk_score,
+        },
     }
 
 def _detect_threats(client, log_entries: list[dict], source_type: str) -> list[dict]:
@@ -233,3 +250,115 @@ def _determine_threat_level(findings: list[dict]) -> str:
         if level in severities:
             return level
     return "none"
+
+
+def _severity_to_score(level: str) -> int:
+    mapping = {
+        "none": 0,
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "critical": 4,
+    }
+    return mapping.get(str(level or "none").strip().lower(), 0)
+
+
+def _score_to_severity(score: int) -> str:
+    mapping = {
+        0: "none",
+        1: "low",
+        2: "medium",
+        3: "high",
+        4: "critical",
+    }
+    safe = max(0, min(4, int(score)))
+    return mapping[safe]
+
+
+def _max_detection_severity(detections: list[dict] | None) -> str:
+    max_score = 0
+    for detection in detections or []:
+        max_score = max(max_score, _severity_to_score(detection.get("severity", "none")))
+    return _score_to_severity(max_score)
+
+
+def _score_rf_risk(rf_context: dict | None) -> float:
+    if not rf_context:
+        return 0.0
+
+    total = int(rf_context.get("total", 0) or 0)
+    if total <= 0:
+        return 0.0
+
+    average_confidence = float(rf_context.get("average_confidence", 0.0) or 0.0)
+    by_severity = rf_context.get("by_severity", {}) or {}
+    high_conf_anomaly = int(rf_context.get("high_conf_anomaly_count", 0) or 0)
+    high_conf_security = int(rf_context.get("high_conf_security_count", 0) or 0)
+    high_conf_error = int(rf_context.get("high_conf_error_count", 0) or 0)
+
+    critical_ratio = float(by_severity.get("critical", 0) or 0) / total
+    high_ratio = float(by_severity.get("high", 0) or 0) / total
+    anomaly_ratio = high_conf_anomaly / total
+    security_ratio = high_conf_security / total
+    error_ratio = high_conf_error / total
+
+    score = (
+        (0.30 * average_confidence) +
+        (0.30 * critical_ratio) +
+        (0.18 * high_ratio) +
+        (0.12 * anomaly_ratio) +
+        (0.07 * security_ratio) +
+        (0.03 * error_ratio)
+    )
+    return max(0.0, min(1.0, score))
+
+
+def _blend_threat_level(
+    base_level: str,
+    detections: list[dict] | None,
+    rf_context: dict | None,
+    rf_risk_score: float,
+) -> str:
+    base_score = _severity_to_score(base_level)
+    detection_score = _severity_to_score(_max_detection_severity(detections))
+    blended_score = max(base_score, detection_score)
+
+    high_conf_total = 0
+    if rf_context:
+        high_conf_total = (
+            int(rf_context.get("high_conf_anomaly_count", 0) or 0) +
+            int(rf_context.get("high_conf_security_count", 0) or 0) +
+            int(rf_context.get("high_conf_error_count", 0) or 0)
+        )
+
+    # Conservative promotion: only boost when RF signal is strong and repeated.
+    if rf_risk_score >= 0.75 and high_conf_total >= 8:
+        blended_score = min(4, blended_score + 1)
+
+    return _score_to_severity(blended_score)
+
+
+def _blend_threats_found(
+    findings_count: int,
+    detections: list[dict] | None,
+    rf_context: dict | None,
+    rf_risk_score: float,
+) -> int:
+    blended = max(int(findings_count or 0), len(detections or []))
+
+    if not rf_context:
+        return blended
+
+    high_conf_total = (
+        int(rf_context.get("high_conf_anomaly_count", 0) or 0) +
+        int(rf_context.get("high_conf_security_count", 0) or 0) +
+        int(rf_context.get("high_conf_error_count", 0) or 0)
+    )
+
+    if rf_risk_score >= 0.65:
+        blended += min(3, high_conf_total // 8)
+
+    if blended == 0 and rf_risk_score >= 0.8 and high_conf_total >= 10:
+        blended = 1
+
+    return blended

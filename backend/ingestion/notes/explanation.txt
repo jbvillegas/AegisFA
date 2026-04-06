@@ -1,0 +1,392 @@
+AEGISFA System Deep-Dive
+========================
+
+This document explains how the full system works across backend ingestion,
+threat analysis, database schema, ML training, and the current frontend.
+
+
+1) High-level purpose
+---------------------
+
+The system is a multi-tenant SIEM-style pipeline that:
+
+1. Accepts security logs from different sources.
+2. Parses and normalizes those logs.
+3. Applies correlation rules for deterministic detections.
+4. Uses AI to produce threat analysis and MITRE ATT&CK mapping.
+5. Stores analysis results and normalized MITRE links in Postgres (Supabase).
+6. Produces actionable investigation guidance.
+7. Supports model training for a Random Forest classifier using CICIDS2019.
+
+The runtime entrypoint for the backend is ingestion/run.py, which launches
+the Flask app on port 5007 by default.
+
+The RF training endpoint supports an activation threshold via the
+RF_VALIDATION_PRECISION_THRESHOLD environment variable.
+
+
+2) System components
+--------------------
+
+Backend (Flask)
+- Main API routes are implemented in ingestion/app/routes.py.
+- App initialization is in ingestion/app/__init__.py.
+- Most services are modularized in ingestion/app/*.py files.
+
+Database (Supabase Postgres)
+- Core schema and incremental features are defined in database/000..008 SQL
+  migration files.
+- Includes multi-tenant tables, RLS policies, vector search for MITRE, and
+  ML training metadata tables.
+
+Storage (Supabase Storage)
+- Raw uploaded files are stored in bucket "log-files" by org path.
+- Trained model artifacts are stored in bucket "ml-models".
+
+Frontend (React)
+- Current frontend handles authentication and login routing.
+- Supabase client is used directly in the browser for auth.
+- Dashboard and analysis UI appear planned but not yet implemented.
+
+
+3) Request lifecycle and observability
+--------------------------------------
+
+All API requests go through lightweight observability hooks in routes.py:
+
+- before_request:
+  - Attaches request_id from X-Request-ID or generates a UUID.
+  - Starts timing using perf_counter.
+
+- after_request:
+  - Logs route, method, status, and elapsed_ms via structlog.
+
+Errors are returned with a consistent envelope:
+- error.code
+- error.message
+- error.retryable
+- error.request_id
+- optional error.details
+
+This makes client error handling and tracing easier.
+
+
+4) Main ingestion flows
+-----------------------
+
+4.1 POST /ingest
+
+Purpose:
+- Direct ingest for a single raw event payload.
+
+Flow:
+1. Validate source and raw_data.
+2. Insert event into raw_logs.
+3. Normalize payload via normalize_log(source, raw_data).
+4. Insert normalized summary into normalized_events.
+5. Return raw_log_id, normalized_event_id, normalized_data.
+
+This is the simplest write path and does not run full threat analysis.
+
+
+4.2 POST /upload (core pipeline)
+
+Purpose:
+- Upload a file and run the full threat-analysis workflow.
+
+Inputs:
+- multipart/form-data with:
+  - file
+  - org_id
+  - source_type (windows|firewall|auth|syslog|custom)
+
+Flow:
+1. Parse file bytes:
+   - parse_file supports multiple log formats and enforces parser constraints.
+2. Upload original file to Supabase storage:
+   - storage path is org_id/filename.
+3. Create log_files record with status="analyzing".
+4. Insert all parsed entries into raw_logs in batches of 200.
+5. Execute correlation engine (deterministic detections).
+6. Execute AI threat analysis (RAG service).
+7. Store analysis in analysis_results.
+8. Store normalized MITRE links in analysis_result_mitre_links.
+9. Update log_files status to "completed".
+10. Generate actionable insights payload and return full response.
+
+Response includes:
+- file metadata
+- detections and detection_count
+- high-level analysis fields
+- actionable_insights
+- request_id
+
+
+4.3 POST /analyze/<file_id>
+
+Purpose:
+- Re-run analysis for a previously uploaded file without re-uploading bytes.
+
+Flow:
+1. Load file metadata from log_files.
+2. Fetch raw entries from raw_logs by file_id.
+3. Re-run correlation + AI analysis.
+4. Persist new analysis record and links.
+5. Return updated analysis payload.
+
+
+4.4 POST /analyze-from-storage
+
+Purpose:
+- Pull a file back from storage and analyze it end-to-end.
+
+Flow:
+1. Validate org_id, filename, source_type.
+2. Download bytes from storage path org_id/filename.
+3. Parse entries.
+4. Create log_files row.
+5. Insert raw logs.
+6. Run correlation + AI analysis.
+7. Store analysis and links.
+8. Mark file completed and return response.
+
+
+4.5 GET /analysis/<file_id>
+
+Purpose:
+- Retrieve latest analysis_result for a file.
+
+Behavior:
+- Select latest analysis_results row by created_at desc.
+- Optionally include normalized MITRE links (default true).
+
+
+5) Correlation engine details
+-----------------------------
+
+The correlation engine runs rules from correlation_rules and produces
+detection objects that become part of final analysis.
+
+Seeded rules:
+- scripts/seed_rules.py inserts 10 MITRE-aligned defaults (upsert by name),
+  for example brute force login, credential stuffing, lateral movement,
+  data exfiltration, and multi-step attack-chain detection.
+
+Rule logic supports multiple styles (based on seeded rules and route usage):
+- threshold
+- sequence
+- distinct_value
+- existence
+- time_rate
+
+Detection payload fields include:
+- rule_name
+- severity
+- description
+- confidence
+- matched_event_indices
+- detected_at/created_at
+- mitre_technique
+
+If correlation processing fails, the API continues with empty detections
+instead of hard-failing the whole request.
+
+
+6) AI threat analysis and RAG
+-----------------------------
+
+The AI layer is orchestrated through rag_service.py.
+
+Main responsibilities:
+1. Build compact representation of events for model context.
+2. Run LLM inference (OpenAI, with local fallback option).
+3. Extract threat findings and derive threat_level.
+4. Map findings to MITRE ATT&CK techniques using vector search.
+5. Return structured analysis for persistence and UX.
+
+Typical analysis output fields:
+- threat_level
+- threats_found
+- summary
+- detailed_findings
+- mitre_techniques
+- attack_vector
+- timeline
+- impacted_assets
+- confidence_score
+- remediation_steps
+
+MITRE retrieval path:
+- database/001_pgvector_mitre.sql creates mitre_techniques with embeddings,
+  vector index, and matching function(s).
+- scripts/seed_mitre.py populates MITRE techniques and embeddings.
+
+
+7) Actionable insights generation
+---------------------------------
+
+After threat analysis, routes.py builds additional operator-facing guidance
+using two services:
+
+1. log_classifier.py
+   - Random Forest + TF-IDF classifier to categorize log content.
+   - Produces category and confidence per log sample.
+   - Also surfaces severity distribution context.
+
+2. insights_generator.py
+   - Generates:
+     - threat insights
+     - incident summary
+     - investigation guide
+
+The final actionable_insights object contains:
+- status
+- threat_count and detection_count
+- classification_context
+- insights
+- incident_summary
+- investigation_guide
+
+If no threats are found, the payload returns a no_threats structure instead of
+invoking full text generation.
+
+
+8) RF model training flow (/rf/train)
+-------------------------------------
+
+This endpoint trains a Random Forest classifier on CICIDS2019 data.
+
+Inputs:
+- org_id
+- dataset_path
+- optional seed, min_samples_per_class, max_rows, requested_by, dataset_name
+
+Flow:
+1. Create training_runs row with status="running".
+2. Build train/validation/test data bundle via kaggle.py.
+   - Policy is stratified 70/15/15 split.
+3. Train classifier on train split.
+4. Evaluate on validation and test splits.
+5. Save model artifact locally then upload binary to ml-models bucket.
+6. Insert model_versions row with metadata and metrics.
+7. Update training_runs status to completed.
+8. Return training_run_id, model_version_id, metrics, artifact path.
+
+Failure handling:
+- On exception, training_runs status is set to failed with error message.
+
+
+9) Database schema evolution summary
+------------------------------------
+
+000_db_implementation.sql
+- Base multi-tenant SIEM entities:
+  organizations, users, user_permissions, log_sources, raw_logs,
+  normalized_events, correlation_rules, detections, incidents,
+  incident_events, tasks.
+
+001_pgvector_mitre.sql
+- Adds pgvector extension.
+- Adds mitre_techniques table and vector index/search procedure.
+
+002_correlation_engine.sql
+- Correlation error capture and schema extensions for detections/results.
+
+003_rls_implementation.sql
+- Enables row-level security policies for tenant isolation.
+
+004_log_analysis_results.sql
+- Adds log_files and analysis_results structures used by upload/analyze flows.
+
+005_analysis_job.sql
+- Adds analysis job tracking tables for batched/background workflows.
+
+006_correlation_errors.sql
+- Additional persistent error tracking for correlation runtime issues.
+
+007_rf_training.sql
+- Adds model_versions and training_runs for ML lifecycle management.
+
+008_analysis_result_mitre_links.sql
+- Normalizes MITRE technique links to analysis results with ranking and
+  similarity fields.
+
+
+10) Frontend behavior (current state)
+-------------------------------------
+
+Current frontend is minimal and auth-first:
+
+- App routes redirect root to login.
+- Login page uses a custom auth hook around Supabase auth.
+- Supabase browser client is configured via REACT_APP_* env vars.
+
+What is present:
+- Login flow plumbing.
+
+What appears pending:
+- Upload UX.
+- Analysis dashboards.
+- Timeline and incident views.
+- Investigation workflows.
+
+The backend is significantly more feature-complete than the frontend at this
+point.
+
+
+11) Configuration and deployment notes
+--------------------------------------
+
+Backend dependencies (requirements.txt) include:
+- Flask and Flask-CORS for API serving.
+- Supabase and dotenv for data/platform integration.
+- OpenAI for LLM and embedding calls.
+- sklearn/pandas/numpy for ML and data prep.
+- torch/transformers/accelerate for local model fallback.
+- structlog for structured logs.
+- pika is installed (queueing library), but active queue wiring is not visible
+  in current routes.
+
+Backend runtime environment variables commonly required:
+- SUPABASE_URL
+- SUPABASE_SERVICE_ROLE_KEY
+- OPENAI_API_KEY
+- optional keys for bucket names and insight provider/model selection
+
+Frontend environment variables:
+- REACT_APP_SUPABASE_URL
+- REACT_APP_SUPABASE_ANON_KEY
+
+
+12) End-to-end narrative example
+--------------------------------
+
+When an analyst uploads a Windows security log file:
+
+1. The file is parsed into entries.
+2. Original bytes are stored in object storage.
+3. Every entry is inserted into raw_logs.
+4. Correlation rules fire on suspicious patterns (for example brute force).
+5. AI analysis summarizes attack behavior and maps likely MITRE techniques.
+6. Results are persisted in analysis_results and MITRE link table.
+7. Actionable insights are generated for triage/investigation.
+8. API returns a payload the frontend can render for SOC operators.
+
+This means the platform combines deterministic detection (rules), probabilistic
+inference (LLM/RAG), and operational guidance (insight generation) in one
+pipeline, all scoped by org_id for tenant isolation.
+
+
+13) Practical architecture observations
+---------------------------------------
+
+Strengths:
+- Clear modular separation across parsing, correlation, AI, storage, and ML.
+- Consistent error envelope and request tracing.
+- Good schema evolution with RLS and normalized MITRE linking.
+
+Current gaps or likely next work:
+- Frontend feature parity with backend capabilities.
+- Explicit async job execution path (analysis_jobs exists, but upload path is
+  currently synchronous).
+- Expanded timeline API exposure in routes (timeline service exists).

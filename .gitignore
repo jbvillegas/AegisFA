@@ -19,3 +19,34 @@ env/
 
 # Node Modules
 node_modules/
+
+# Training data
+data/cicids2019/
+data/*.zip
+data/*.csv
+*.pkl  # Model files
+.models/
+
+# Logs
+backend/ingestion/assets/chunks/
+backend/ingestion/assets/chunks_test/
+backend/ingestion/assets/*.csv
+
+# build directory and artifacts
+frontend/build/
+frontend/dist/
+node_modules/
+
+# macOS
+.DS_Store
+.DS_Store?
+*/.DS_Store
+
+# Build artifacts
+frontend/build/
+**/node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pkl

@@ -1,8 +1,3 @@
-"""
-Random Forest-based structured log classification.
-Classifies logs into categories and provides confidence scores.
-"""
-
 import pickle
 from collections import Counter
 import numpy as np
@@ -10,17 +5,17 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
 from sklearn.preprocessing import LabelEncoder
 
 # Model cache
 _rf_model = None
-_vectorizer = None # Not used globally at the moment, but kept for potential future use
-_label_encoder = None
+_vectorizer = None # Not used globally at the moment, but kept for potential future use.
+_label_encoder = None # Not used globally at the moment, but kept for potential future use.
 _model_path = Path(__file__).parent / ".models"
 
 
-class LogClassifier:
-    """Random Forest classifier for logs."""
+class LogClassifier: #LABELS
     
     # Predefined log categories
     LOG_CATEGORIES = [
@@ -62,14 +57,12 @@ class LogClassifier:
 
         return pairs
 
-    def _normalize_label(self, label: str) -> str:
-        """Map unknown labels into a safe default category."""
+    def _normalize_label(self, label: str) -> str: ## Map unknown labels into a safe default category
         if label in self.LOG_CATEGORIES:
             return label
-        return "anomaly"
+        return "Anomaly"
 
-    def _rule_based_guess(self, log_entry: Dict) -> str:
-        """Fallback category when model is unavailable."""
+    def _rule_based_guess(self, log_entry: Dict) -> str: ##Fallback heuristic classification based on key terms in the log entry.
         text = self.extract_features(log_entry)
         if any(term in text for term in ("login", "auth", "password", "mfa")):
             return "authentication"
@@ -86,38 +79,37 @@ class LogClassifier:
         return "anomaly"
     
     def extract_features(self, log_entry: Dict) -> str:
-        """Extract relevant text features from a log entry."""
         if not isinstance(log_entry, dict):
             return ""
 
         features: List[str] = []
         for key, value in self._flatten_pairs(log_entry):
             features.append(f"{key}:{value}")
-            if key.split(".")[-1] in {"message", "action", "status", "user", "ip", "event_type", "severity"}:
+            if key.split(".")[-1] in {"message", "action", "status", "user", "ip", "event_type", "severity"}: ## Relevant features for classification.
                 features.append(value)
 
         return " ".join(features)
     
     def train(self, training_data: List[Tuple[Dict, str]], test_size: float = 0.2):
-        """
-        Train the RF classifier on labeled log data.
         
-        Args:
-            training_data: List of tuples (log_entry, category)
-            test_size: Proportion of data to use for testing
-        
-        Returns:
-            Dictionary with training metrics
-        """
         if not training_data:
-            return {"error": "No training data provided"}
+            return {"ERROR": "No training data provided"}
         
-        # Extract features and normalize labels to supported categories.
+        # Extract features and use label space directly from provided training set.
         texts = [self.extract_features(entry) for entry, _ in training_data]
-        labels = [self._normalize_label(category) for _, category in training_data]
+        labels = [str(category).strip().lower() for _, category in training_data if str(category).strip()]
+
+        if len(labels) != len(training_data):
+            return {"ERROR": "Training data contains EMPTY labels"}
 
         if not any(texts):
-            return {"error": "Training data produced empty feature set"}
+            return {"ERROR": "Training data produced EMPTY feature set"}
+
+        classes = sorted(set(labels))
+        if len(classes) < 2:
+            return {"ERROR": "Training requires at least TWO unique classes"}
+
+        self.label_encoder.fit(classes)
         
         # Vectorize text
         X = self.vectorizer.fit_transform(texts).toarray()
@@ -135,6 +127,7 @@ class LogClassifier:
         self.training_metadata = {
             "label_distribution": dict(Counter(labels)),
             "n_samples": len(training_data),
+            "classes": classes,
         }
         
         # Calculate training accuracy
@@ -144,20 +137,55 @@ class LogClassifier:
             "status": "trained",
             "accuracy": float(train_score),
             "n_samples": len(training_data),
-            "categories": self.LOG_CATEGORIES,
+            "categories": classes,
             "label_distribution": dict(Counter(labels)),
         }
+
+    def evaluate(self, labeled_data: List[Tuple[Dict, str]]) -> Dict:
+        """Evaluate the trained model on a labeled split."""
+        if not self.is_trained or self.model is None:
+            return {"ERROR": "Classifier not trained"}
+
+        if not labeled_data:
+            return {"ERROR": "No evaluation data provided"}
+
+        entries = [entry for entry, _ in labeled_data]
+        y_true = [str(label).strip().lower() for _, label in labeled_data]
+        predictions = self.classify_batch(entries)
+        y_pred = [prediction.get("category", "") for prediction in predictions]
+
+        accuracy = float(accuracy_score(y_true, y_pred))
+        precision_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(
+            y_true,
+            y_pred,
+            average="macro",
+            zero_division=0,
+        )
+        precision_weighted, recall_weighted, f1_weighted, _ = precision_recall_fscore_support(
+            y_true,
+            y_pred,
+            average="weighted",
+            zero_division=0,
+        )
+
+        labels = list(self.label_encoder.classes_)
+        cm = confusion_matrix(y_true, y_pred, labels=labels)
+
+        return {
+            "samples": len(labeled_data),
+            "accuracy": accuracy,
+            "precision_macro": float(precision_macro),
+            "recall_macro": float(recall_macro),
+            "f1_macro": float(f1_macro),
+            "precision_weighted": float(precision_weighted),
+            "recall_weighted": float(recall_weighted),
+            "f1_weighted": float(f1_weighted),
+            "labels": labels,
+            "confusion_matrix": cm.tolist(),
+        }
     
-    def classify(self, log_entry: Dict) -> Dict:
-        """
-        Classify a single log entry.
-        
-        Args:
-            log_entry: Dictionary representing a log entry
-        
-        Returns:
-            Dictionary with classification, confidence, and reasoning
-        """
+    def classify(self, log_entry: Dict, include_mitre: bool = True) -> Dict:
+    
         if not self.is_trained or self.model is None:
             guessed = self._rule_based_guess(log_entry)
             return {
@@ -194,29 +222,33 @@ class LogClassifier:
         extracted_text = self.extract_features(log_entry)
         key_terms = extracted_text.split()[:5]
         
-        return {
+        result = {
             "category": category,
             "confidence": confidence,
             "top_predictions": top_predictions,
             "key_terms": key_terms,
             "reasoning": f"Classified as '{category}' based on features: {', '.join(key_terms)}"
         }
+        
+        # Optionally enrich with MITRE mapping
+        if include_mitre:
+            from .rf_training_mapping import get_mitre_with_confidence
+            mitre_data = get_mitre_with_confidence(category, confidence)
+            result["mitre_techniques"] = mitre_data.get("techniques", [])
+            result["mitre_summary"] = mitre_data.get("summary", "")
+            result["mitre_severity"] = mitre_data.get("severity", "medium")
+            result["adjusted_severity"] = mitre_data.get("adjusted_severity", "medium")
+            result["confidence_score"] = mitre_data.get("confidence_score", confidence)
+        
+        return result
     
-    def classify_batch(self, log_entries: List[Dict]) -> List[Dict]:
-        """
-        Classify multiple log entries.
+    def classify_batch(self, log_entries: List[Dict], include_mitre: bool = True) -> List[Dict]:
         
-        Args:
-            log_entries: List of log entry dictionaries
-        
-        Returns:
-            List of classification results
-        """
         if not log_entries:
             return []
 
         if not self.is_trained or self.model is None:
-            return [self.classify(entry) for entry in log_entries]
+            return [self.classify(entry, include_mitre=include_mitre) for entry in log_entries]
 
         texts = [self.extract_features(entry) for entry in log_entries]
         X = self.vectorizer.transform(texts).toarray()
@@ -238,21 +270,33 @@ class LogClassifier:
             ]
             key_terms = texts[i].split()[:5]
 
-            results.append({
+            result = {
                 "status": "classified",
                 "category": category,
                 "confidence": confidence,
                 "top_predictions": top_predictions,
                 "key_terms": key_terms,
                 "reasoning": f"Classified as '{category}' based on structured feature vector.",
-            })
+            }
+            
+            # MITRE MAPPING
+            if include_mitre:
+                from .rf_training_mapping import get_mitre_with_confidence
+                mitre_data = get_mitre_with_confidence(category, confidence)
+                result["mitre_techniques"] = mitre_data.get("techniques", [])
+                result["mitre_summary"] = mitre_data.get("summary", "")
+                result["mitre_severity"] = mitre_data.get("severity", "medium")
+                result["adjusted_severity"] = mitre_data.get("adjusted_severity", "medium")
+                result["confidence_score"] = mitre_data.get("confidence_score", confidence)
+
+            results.append(result)
 
         return results
     
     def get_feature_importance(self) -> Dict:
-        """Get feature importance from the trained model."""
+        
         if not self.is_trained or self.model is None:
-            return {"error": "Classifier not trained"}
+            return {"ERROR": "Classifier not trained"}
         
         # Get feature names from vectorizer
         feature_names = self.vectorizer.get_feature_names_out()
@@ -272,7 +316,7 @@ class LogClassifier:
         }
     
     def save_model(self, filepath: str = None):
-        """Save the trained model to disk."""
+       
         if not self.is_trained:
             return {"error": "No trained model to save"}
         
@@ -291,12 +335,12 @@ class LogClassifier:
         return {"status": "saved", "path": str(filepath)}
     
     def load_model(self, filepath: str = None):
-        """Load a trained model from disk."""
+        
         if filepath is None:
             filepath = _model_path / "rf_classifier.pkl"
         
         if not Path(filepath).exists():
-            return {"error": f"Model file not found: {filepath}"}
+            return {"ERROR": f"Model file not found: {filepath}"}
         
         with open(filepath, 'rb') as f:
             data = pickle.load(f)
@@ -310,7 +354,7 @@ class LogClassifier:
 
 
 def get_classifier() -> LogClassifier:
-    """Get or create a global LogClassifier instance."""
+
     global _rf_model
     if _rf_model is None:
         _rf_model = LogClassifier()
