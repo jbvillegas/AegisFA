@@ -1,0 +1,21 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.cpython-*.pyc
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+
+# Claude working directory
+.claude/
+
+# Node Modules
+node_modules/

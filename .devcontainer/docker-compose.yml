@@ -1,0 +1,37 @@
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+
+    volumes:
+      - ..:/workspaces:cached
+    ports:
+      - "5001:5001"
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SECRET_KEY=${SECRET_KEY}
+      - USE_AI_NORMALIZATION=${USE_AI_NORMALIZATION:-false}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    command: python /workspaces/backend/ingestion/run.py
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_SUPABASE_URL=${SUPABASE_URL}
+      - REACT_APP_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
