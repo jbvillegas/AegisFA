@@ -182,19 +182,6 @@ def _parse_text(content: str) -> tuple[list[dict], list[str]]:
 
 
 def parse_file_with_metadata(file_bytes: bytes, filename: str) -> dict:
-    """
-    Returns:
-    {
-      "entries": [...],
-      "metadata": {
-        "filename": str,
-        "detected_format": "json|csv|text",
-        "detected_encoding": str,
-        "entry_count": int,
-        "warnings": [str, ...]
-      }
-    }
-    """
     content, encoding = _decode_bytes(file_bytes)
     file_format = detect_format(filename, content)
 

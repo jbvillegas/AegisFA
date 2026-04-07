@@ -97,7 +97,7 @@ DEFAULT_RULES = [
         "mitre_technique": "T1041",
         "severity": "critical",
         "rule_logic": {
-            "type": "existence",
+            "type": "existence",    
             "filter": [
                 {"field": "action", "op": "eq", "value": "data_export"},
                 {"field": "result", "op": "eq", "value": "success"},

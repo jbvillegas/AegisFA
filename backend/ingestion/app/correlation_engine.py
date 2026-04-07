@@ -19,6 +19,38 @@ _OPS = {
     "exists": lambda val, _: val is not None,
 }
 
+
+def _coerce_number(value):
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return float(int(value))
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        text = str(value).strip()
+        if not text:
+            return None
+        return float(text)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compare_numeric(val, rule_val, comparator):
+    left = _coerce_number(val)
+    right = _coerce_number(rule_val)
+    if left is None or right is None:
+        return False
+    return comparator(left, right)
+
+
+_OPS.update({
+    "gt": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left > right),
+    "gte": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left >= right),
+    "lt": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left < right),
+    "lte": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left <= right),
+})
+
 def _record_correlation_error(
     org_id: str,
     file_id: str,
@@ -120,6 +152,34 @@ def run_correlation(
                             "matched_event_indices": result["matched_indices"],
                             "description": result["description"],
                         })
+        else:
+            result = _evaluate_rule(
+                rule=rule,
+                entries=entries,
+                org_id=org_id,
+                file_id=file_id,
+                request_id=request_id,
+            )
+            if result is not None:
+                detection_id = _save_detection(
+                    org_id=org_id,
+                    file_id=file_id,
+                    rule=rule,
+                    matched_indices=result["matched_indices"],
+                    confidence=result["confidence"],
+                    description=result["description"],
+                    request_id=request_id,
+                )
+                if detection_id:
+                    detections.append({
+                        "detection_id": detection_id,
+                        "rule_name": rule["name"],
+                        "mitre_technique": rule.get("mitre_technique", ""),
+                        "severity": rule.get("severity", "medium"),
+                        "confidence": result["confidence"],
+                        "matched_event_indices": result["matched_indices"],
+                        "description": result["description"],
+                    })
 
     return detections
 

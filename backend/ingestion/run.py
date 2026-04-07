@@ -1,5 +1,9 @@
 import os
+from dotenv import load_dotenv
 from app import create_app
+
+# Load local environment variables from .env before app initialization.
+load_dotenv()
 
 app = create_app()
 
