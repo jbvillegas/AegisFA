@@ -52,15 +52,25 @@ def load_cicids2019_dataframe(dataset_path: str | None = None, max_rows: int | N
 	if not csv_files:
 		raise ValueError(f"No CSV files found under directory: {selected_path}")
 
+	# When a row cap is set for a directory, distribute reads across files so
+	# training does not overfit to whichever file is first in sort order.
+	per_file_limits: Dict[Path, int] = {}
+	if row_limit is not None:
+		file_count = len(csv_files)
+		base_rows = row_limit // file_count
+		remainder = row_limit % file_count
+		for index, csv_file in enumerate(csv_files):
+			per_file_limits[csv_file] = base_rows + (1 if index < remainder else 0)
+
 	frames: List[pd.DataFrame] = []
 	errors: List[str] = []
 	rows_collected = 0
 	for csv_file in csv_files:
 		remaining_rows = None
 		if row_limit is not None:
-			remaining_rows = row_limit - rows_collected
+			remaining_rows = per_file_limits.get(csv_file, 0)
 			if remaining_rows <= 0:
-				break
+				continue
 		try:
 			frame = _read_and_normalize_csv(csv_file, nrows=remaining_rows)
 			if frame.empty:
@@ -75,6 +85,8 @@ def load_cicids2019_dataframe(dataset_path: str | None = None, max_rows: int | N
 		raise ValueError(f"Failed to read any CSV files from {selected_path}. {error_preview}")
 
 	combined = pd.concat(frames, ignore_index=True, sort=False)
+	if row_limit is not None and len(combined) > row_limit:
+		combined = combined.iloc[:row_limit].copy()
 	if max_rows is None and selected_path.is_dir() and len(combined) >= DEFAULT_MAX_ROWS:
 		raise ValueError(
 			f"Dataset directory is large; loaded first {DEFAULT_MAX_ROWS} rows only. "

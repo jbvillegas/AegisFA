@@ -38,8 +38,38 @@ def download_stix_data() -> dict:
 def extract_techniques(stix_bundle: dict) -> list[dict]:
     """Extract active attack-pattern objects from the STIX bundle."""
     techniques = []
+    objects = stix_bundle.get("objects", [])
 
-    for obj in stix_bundle.get("objects", []):
+    mitigations_by_id = {}
+    for obj in objects:
+        if obj.get("type") != "course-of-action":
+            continue
+        if obj.get("revoked", False) or obj.get("x_mitre_deprecated", False):
+            continue
+
+        description = (obj.get("description") or "").strip()
+        mitigations_by_id[obj.get("id")] = {
+            "name": obj.get("name", ""),
+            "description": description,
+        }
+
+    mitigations_by_technique_ref = {}
+    for obj in objects:
+        if obj.get("type") != "relationship":
+            continue
+        if obj.get("relationship_type") != "mitigates":
+            continue
+
+        source_ref = obj.get("source_ref")
+        target_ref = obj.get("target_ref")
+        if not source_ref or not target_ref:
+            continue
+        if source_ref not in mitigations_by_id:
+            continue
+
+        mitigations_by_technique_ref.setdefault(target_ref, []).append(mitigations_by_id[source_ref])
+
+    for obj in objects:
         if obj.get("type") != "attack-pattern":
             continue
         if obj.get("revoked", False) or obj.get("x_mitre_deprecated", False):
@@ -63,6 +93,14 @@ def extract_techniques(stix_bundle: dict) -> list[dict]:
             if phase.get("kill_chain_name") == "mitre-attack":
                 tactics.append(phase["phase_name"])
 
+        mitigation_items = mitigations_by_technique_ref.get(obj.get("id"), [])
+        mitigation_lines = []
+        for mitigation in mitigation_items[:4]:
+            line = mitigation.get("name", "")
+            if mitigation.get("description"):
+                line = f"{line}: {mitigation['description'][:320]}"
+            mitigation_lines.append(line.strip())
+
         techniques.append({
             "technique_id": technique_id,
             "name": obj.get("name", ""),
@@ -70,7 +108,9 @@ def extract_techniques(stix_bundle: dict) -> list[dict]:
             "tactic": ", ".join(tactics) if tactics else "unknown",
             "platform": obj.get("x_mitre_platforms", []),
             "detection": obj.get("x_mitre_detection", ""),
-            "mitigation": "",
+            "mitigation": "\n".join([line for line in mitigation_lines if line]),
+            "data_sources": obj.get("x_mitre_data_sources", []),
+            "aliases": obj.get("x_mitre_aliases", []),
             "url": url or f"https://attack.mitre.org/techniques/{technique_id.replace('.', '/')}",
         })
 
@@ -85,9 +125,16 @@ def build_embedding_text(technique: dict) -> str:
         f"Description: {technique['description'][:1000]}",
     ]
     if technique["detection"]:
-        parts.append(f"Detection: {technique['detection'][:500]}")
+        parts.append(f"Detection guidance: {technique['detection'][:900]}")
+    if technique.get("mitigation"):
+        parts.append(f"Mitigation guidance: {technique['mitigation'][:900]}")
     if technique["platform"]:
         parts.append(f"Platforms: {', '.join(technique['platform'])}")
+    if technique.get("data_sources"):
+        parts.append(f"Data sources: {', '.join(technique['data_sources'][:10])}")
+    if technique.get("aliases"):
+        parts.append(f"Aliases: {', '.join(technique['aliases'][:10])}")
+    parts.append(f"Reference URL: {technique['url']}")
     return "\n".join(parts)
 
 

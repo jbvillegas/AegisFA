@@ -90,6 +90,8 @@ _CLASS_TO_MITRE = {
 	"drdos_dns": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via DNS amplification.",
 		"severity": "high",
@@ -97,6 +99,8 @@ _CLASS_TO_MITRE = {
 	"drdos_ldap": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via LDAP amplification.",
 		"severity": "high",
@@ -104,6 +108,8 @@ _CLASS_TO_MITRE = {
 	"drdos_mssql": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via MSSQL amplification.",
 		"severity": "high",
@@ -111,6 +117,8 @@ _CLASS_TO_MITRE = {
 	"drdos_ntp": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via NTP amplification.",
 		"severity": "high",
@@ -118,6 +126,8 @@ _CLASS_TO_MITRE = {
 	"drdos_netbios": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via NetBIOS amplification.",
 		"severity": "high",
@@ -125,6 +135,8 @@ _CLASS_TO_MITRE = {
 	"drdos_snmp": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via SNMP amplification.",
 		"severity": "high",
@@ -132,6 +144,8 @@ _CLASS_TO_MITRE = {
 	"drdos_ssdp": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via SSDP amplification.",
 		"severity": "high",
@@ -139,6 +153,8 @@ _CLASS_TO_MITRE = {
 	"drdos_udp": {
 		"techniques": [
 			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+			{"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
 		],
 		"summary": "DDoS attack via UDP amplification.",
 		"severity": "high",

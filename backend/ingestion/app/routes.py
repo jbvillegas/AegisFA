@@ -5,15 +5,16 @@ from .file_parser import parse_file, parse_file_with_metadata
 from .rag_service import analyze_threats
 from .correlation_engine import run_correlation
 from .timeline_service import get_file_timeline, get_org_timeline
-from .storage import upload_file, download_file, upload_binary, BUCKET_NAME
+from .storage import upload_file, download_file, upload_binary, download_binary, BUCKET_NAME
 from .log_classifier import get_classifier
 from .insights_generator import get_insights_generator
 from .kaggle import prepare_cicids2019_training_bundle
 from datetime import datetime, timezone
 from time import perf_counter
-from uuid import uuid4
+from uuid import UUID, uuid4
 from pathlib import Path
 from threading import Thread, Lock
+import time
 import json
 import os
 import structlog 
@@ -24,11 +25,55 @@ logger = structlog.get_logger(__name__)
 RAW_LOG_INSERT_BATCH_SIZE = 200
 _VALID_SEVERITIES = {"low", "medium", "high", "critical"}
 BACKGROUND_PARSE_MAX_ROWS = int(os.getenv('BACKGROUND_PARSE_MAX_ROWS', '200000'))
+SUPABASE_RETRY_ATTEMPTS = int(os.getenv('SUPABASE_RETRY_ATTEMPTS', '4'))
+SUPABASE_RETRY_BASE_DELAY_SECONDS = float(os.getenv('SUPABASE_RETRY_BASE_DELAY_SECONDS', '0.8'))
 MAX_UPLOAD_PART_BYTES = int(os.getenv('MAX_UPLOAD_PART_BYTES', str(16 * 1024 * 1024)))
 MAX_UPLOAD_SESSION_ASSEMBLY_BYTES = int(os.getenv('MAX_UPLOAD_SESSION_ASSEMBLY_BYTES', str(2 * 1024 * 1024 * 1024)))
 
 _upload_sessions: dict[str, dict] = {}
 _upload_sessions_lock = Lock()
+
+
+def _load_latest_rf_model(org_id: str | None = None) -> dict:
+    query = (
+        supabase_client.table('model_versions')
+        .select('id, org_id, version, artifact_bucket, artifact_path, status, created_at')
+        .eq('name', 'rf-cicids2019')
+        .eq('status', 'active')
+        .order('created_at', desc=True)
+    )
+    if org_id:
+        query = query.eq('org_id', org_id)
+
+    model_result = query.limit(1).execute()
+    if not model_result.data:
+        raise ValueError('No active RF model version found')
+
+    model_row = model_result.data[0]
+    artifact_path = model_row.get('artifact_path')
+    artifact_bucket = model_row.get('artifact_bucket')
+    if not artifact_path:
+        raise ValueError('Active RF model version has no artifact_path')
+
+    artifact_bytes = download_binary(artifact_path, bucket_name=artifact_bucket)
+    local_path = Path(__file__).parent / '.models' / 'rf_classifier.pkl'
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(local_path, 'wb') as model_file:
+        model_file.write(artifact_bytes)
+
+    classifier = get_classifier()
+    load_result = classifier.load_model(str(local_path))
+    if load_result.get('ERROR'):
+        raise ValueError(load_result['ERROR'])
+
+    return {
+        'model_version_id': model_row.get('id'),
+        'model_version': model_row.get('version'),
+        'org_id': model_row.get('org_id'),
+        'artifact_path': artifact_path,
+        'artifact_bucket': artifact_bucket,
+        'local_path': str(local_path),
+    }
 
 @main.before_request
 def _set_request_id():
@@ -83,6 +128,16 @@ def _error_response(
         payload['error']['details'] = details
     return jsonify(payload), status
 
+
+def _is_uuid(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        UUID(str(value))
+        return True
+    except (TypeError, ValueError):
+        return False
+
 def _normalize_severity(value: str) -> str:
     if not value:
         return "medium"
@@ -110,6 +165,22 @@ def _detections_to_threats(detections):
         threat['indicators'] = [i for i in threat.get('indicators', []) if i]
     return threats
 
+
+def _execute_with_retry(operation, attempts: int | None = None, base_delay_seconds: float | None = None):
+    retry_attempts = max(1, int(attempts or SUPABASE_RETRY_ATTEMPTS))
+    retry_base_delay = float(base_delay_seconds or SUPABASE_RETRY_BASE_DELAY_SECONDS)
+    last_error = None
+
+    for attempt in range(1, retry_attempts + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            last_error = exc
+            if attempt < retry_attempts:
+                time.sleep(min(retry_base_delay * attempt, 4.0))
+
+    raise last_error
+
 def _insert_raw_logs_in_batches(entries, org_id, file_id):
     rows = [
         {
@@ -122,7 +193,9 @@ def _insert_raw_logs_in_batches(entries, org_id, file_id):
 
     for i in range(0, len(rows), RAW_LOG_INSERT_BATCH_SIZE):
         batch = rows[i:i + RAW_LOG_INSERT_BATCH_SIZE]
-        supabase_client.table('raw_logs').insert(batch).execute()
+        _execute_with_retry(
+            lambda payload=batch: supabase_client.table('raw_logs').insert(payload).execute()
+        )
 
 def _build_mitre_link_rows(analysis_result_id: str, org_id: str, file_id: str, mitre_techniques) -> list[dict]:
     rows = []
@@ -154,7 +227,7 @@ def _store_analysis_result(
     analysis: dict,
     detections: list[dict] | None = None,
 ) -> str | None:
-    insert_result = supabase_client.table('analysis_results').insert({
+    payload = {
         'file_id': file_id,
         'threat_level': analysis['threat_level'],
         'threats_found': analysis['threats_found'],
@@ -167,7 +240,17 @@ def _store_analysis_result(
         'confidence_score': analysis.get('confidence_score'),
         'remediation_steps': analysis.get('remediation_steps'),
         'correlation_detections': detections or [],
-    }).execute()
+        'verdict_sources': analysis.get('verdict_sources'),
+    }
+
+    try:
+        insert_result = supabase_client.table('analysis_results').insert(payload).execute()
+    except Exception as exc:
+        # Keep compatibility with databases that have not yet applied verdict_sources migration.
+        if 'verdict_sources' not in str(exc):
+            raise
+        payload.pop('verdict_sources', None)
+        insert_result = supabase_client.table('analysis_results').insert(payload).execute()
 
     analysis_result_id = None
     if insert_result.data:
@@ -378,11 +461,21 @@ def _job_logger(**fields):
 
 
 def _update_analysis_job(job_id: str, updates: dict):
-    supabase_client.table('analysis_jobs').update(updates).eq('id', job_id).execute()
+    try:
+        _execute_with_retry(
+            lambda: supabase_client.table('analysis_jobs').update(updates).eq('id', job_id).execute()
+        )
+    except Exception:
+        _job_logger(route='update_analysis_job', job_id=job_id).exception('Failed to update analysis job status')
 
 
 def _update_analysis_job_item(item_id: str, updates: dict):
-    supabase_client.table('analysis_job_items').update(updates).eq('id', item_id).execute()
+    try:
+        _execute_with_retry(
+            lambda: supabase_client.table('analysis_job_items').update(updates).eq('id', item_id).execute()
+        )
+    except Exception:
+        _job_logger(route='update_analysis_job_item', item_id=item_id).exception('Failed to update analysis job item status')
 
 
 def _create_background_analysis_job_internal(
@@ -390,7 +483,9 @@ def _create_background_analysis_job_internal(
     filename: str,
     source_type: str,
     requested_by: str | None = None,
+    output_path: str | None = None,
 ):
+    resolved_output_path = output_path or f"{org_id}/{filename}"
     job_result = supabase_client.table('analysis_jobs').insert({
         'org_id': org_id,
         'requested_by': requested_by,
@@ -400,7 +495,7 @@ def _create_background_analysis_job_internal(
         'processed_files': 0,
         'failed_files': 0,
         'progress_pct': 0,
-        'output_path': f"{org_id}/{filename}",
+        'output_path': resolved_output_path,
     }).execute()
     job_id = job_result.data[0]['id']
 
@@ -415,7 +510,7 @@ def _create_background_analysis_job_internal(
 
     worker = Thread(
         target=_run_background_analysis_job,
-        args=(job_id, item_id, org_id, filename, source_type),
+        args=(job_id, item_id, org_id, filename, source_type, resolved_output_path),
         daemon=True,
     )
     worker.start()
@@ -450,13 +545,31 @@ def _build_upload_manifest(session: dict):
 def _persist_upload_manifest(session: dict):
     manifest_path = f"{session['session_prefix']}/manifest.json"
     manifest = _build_upload_manifest(session)
-    upload_binary(
-        path=manifest_path,
-        file_bytes=json.dumps(manifest).encode('utf-8'),
-        bucket_name=BUCKET_NAME,
-        content_type='application/json',
-    )
+    try:
+        upload_binary(
+            path=manifest_path,
+            file_bytes=json.dumps(manifest).encode('utf-8'),
+            bucket_name=BUCKET_NAME,
+            content_type='application/json',
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Failed to store upload session manifest at {manifest_path}: {exc}"
+        ) from exc
     session['manifest_path'] = manifest_path
+
+
+def _download_file_with_retry(storage_path: str, attempts: int = 3) -> bytes:
+    last_error = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return download_file(storage_path)
+        except Exception as exc:
+            last_error = exc
+            if attempt < attempts:
+                time.sleep(min(1.5 * attempt, 4.5))
+
+    raise last_error
 
 
 def _run_background_analysis_job(
@@ -465,9 +578,9 @@ def _run_background_analysis_job(
     org_id: str,
     filename: str,
     source_type: str,
+    storage_path: str,
 ):
     log = _job_logger(route='run_background_analysis_job', job_id=job_id, item_id=item_id, org_id=org_id, filename=filename)
-    storage_path = f"{org_id}/{filename}"
     file_id = None
 
     try:
@@ -482,7 +595,26 @@ def _run_background_analysis_job(
             'progress_pct': 5,
         })
 
-        file_bytes = download_file(storage_path)
+        if storage_path.endswith('/manifest.json'):
+            manifest_bytes = _download_file_with_retry(storage_path)
+            manifest = json.loads(manifest_bytes.decode('utf-8'))
+            parts = manifest.get('parts') or []
+            if not parts:
+                raise ValueError('Upload manifest does not contain parts')
+
+            assembled_chunks = []
+            for part in parts:
+                part_path = part.get('path')
+                if not part_path:
+                    continue
+                assembled_chunks.append(_download_file_with_retry(part_path))
+
+            if not assembled_chunks:
+                raise ValueError('Failed to download upload parts from manifest')
+
+            file_bytes = b''.join(assembled_chunks)
+        else:
+            file_bytes = _download_file_with_retry(storage_path)
         _update_analysis_job(job_id, {'progress_pct': 15})
         _update_analysis_job_item(item_id, {'progress_pct': 15})
 
@@ -1024,8 +1156,14 @@ def create_background_analysis_job():
 def get_background_analysis_job(job_id):
     """Poll background job status and retrieve output when available."""
     log = _request_logger(route='get_background_analysis_job', job_id=job_id)
+
+    if not _is_uuid(job_id):
+        return _error_response('job_id must be a UUID', 400, 'VALIDATION_ERROR')
+
     try:
-        job_result = supabase_client.table('analysis_jobs').select('*').eq('id', job_id).limit(1).execute()
+        job_result = supabase_client.table('analysis_jobs').select(
+            'id, org_id, requested_by, status, source_type, total_files, processed_files, failed_files, progress_pct, created_at, started_at, completed_at, error_message, output_path'
+        ).eq('id', job_id).limit(1).execute()
     except Exception:
         log.exception('Failed to fetch analysis job')
         return _error_response('Failed to fetch analysis job', 500, 'DATABASE_ERROR', retryable=True)
@@ -1034,15 +1172,24 @@ def get_background_analysis_job(job_id):
         return _error_response('Analysis job not found', 404, 'NOT_FOUND')
 
     job = job_result.data[0]
-    items_result = supabase_client.table('analysis_job_items').select('*').eq('job_id', job_id).execute()
-    items = items_result.data or []
+    items = []
+    try:
+        items_result = supabase_client.table('analysis_job_items').select(
+            'id, job_id, file_name, file_id, status, entry_count, result_id, progress_pct, created_at, started_at, completed_at, error_message'
+        ).eq('job_id', job_id).execute()
+        items = items_result.data or []
+    except Exception:
+        log.exception('Failed to fetch analysis job items')
 
     result_payload = None
     completed_item = next((item for item in items if item.get('status') == 'completed' and item.get('result_id')), None)
     if completed_item:
         result_id = completed_item['result_id']
-        analysis_result = supabase_client.table('analysis_results').select('*').eq('id', result_id).limit(1).execute()
-        result_payload = analysis_result.data[0] if analysis_result.data else None
+        try:
+            analysis_result = supabase_client.table('analysis_results').select('*').eq('id', result_id).limit(1).execute()
+            result_payload = analysis_result.data[0] if analysis_result.data else None
+        except Exception:
+            log.exception('Failed to fetch analysis result for completed job item')
 
     return jsonify({
         'job': job,
@@ -1099,8 +1246,17 @@ def init_upload_session():
 
     try:
         _persist_upload_manifest(session)
-    except Exception:
-        return _error_response('Failed to initialize upload session manifest', 500, 'STORAGE_ERROR', retryable=True)
+    except Exception as exc:
+        log = _request_logger(route='init_upload_session', org_id=org_id, filename=filename)
+        log.exception('Failed to initialize upload session manifest')
+        return _error_response(
+            'Failed to initialize upload session manifest',
+            500,
+            'STORAGE_ERROR'
+            ,
+            retryable=True,
+            details={'storage_error': str(exc), 'session_prefix': session_prefix},
+        )
 
     return jsonify({
         'session_id': session_id,
@@ -1155,8 +1311,15 @@ def upload_session_part():
                 bucket_name=BUCKET_NAME,
                 content_type='application/octet-stream',
             )
-        except Exception:
-            return _error_response('Failed to store upload part', 500, 'STORAGE_ERROR', retryable=True)
+        except Exception as exc:
+            log.exception('Failed to store upload part', part_path=part_path, part_number=part_number, session_id=session_id)
+            return _error_response(
+                'Failed to store upload part',
+                500,
+                'STORAGE_ERROR',
+                retryable=True,
+                details={'storage_error': str(exc), 'part_path': part_path, 'part_number': part_number},
+            )
 
         session['parts'][part_number] = part_path
         session['part_sizes'][part_number] = len(part_bytes)
@@ -1165,8 +1328,15 @@ def upload_session_part():
 
         try:
             _persist_upload_manifest(session)
-        except Exception:
-            return _error_response('Failed to update upload manifest', 500, 'STORAGE_ERROR', retryable=True)
+        except Exception as exc:
+            log.exception('Failed to update upload manifest', session_id=session_id)
+            return _error_response(
+                'Failed to update upload manifest',
+                500,
+                'STORAGE_ERROR',
+                retryable=True,
+                details={'storage_error': str(exc), 'session_id': session_id},
+            )
 
         total_parts = session.get('total_parts')
         received_count = len(session['received_parts'])
@@ -1189,6 +1359,7 @@ def complete_upload_session():
     payload = request.get_json(silent=True) or {}
     session_id = payload.get('session_id')
     requested_by = payload.get('requested_by')
+    log = _request_logger(route='complete_upload_session', session_id=session_id)
 
     if not session_id:
         return _error_response('session_id is required', 400, 'VALIDATION_ERROR')
@@ -1235,20 +1406,10 @@ def complete_upload_session():
         org_id = session['org_id']
         filename = session['filename']
         source_type = session['source_type']
+        manifest_path = session.get('manifest_path')
 
-    assembled_chunks = []
-    try:
-        for part_number in ordered_parts:
-            part_path = session['parts'][part_number]
-            assembled_chunks.append(download_file(part_path))
-    except Exception:
-        return _error_response('Failed to read uploaded parts from storage', 500, 'STORAGE_ERROR', retryable=True)
-
-    try:
-        assembled_bytes = b''.join(assembled_chunks)
-        assembled_path = upload_file(assembled_bytes, filename, org_id)
-    except Exception:
-        return _error_response('Failed to assemble and store uploaded file', 500, 'STORAGE_ERROR', retryable=True)
+    if not manifest_path:
+        return _error_response('Upload manifest path missing for session', 500, 'STORAGE_ERROR', retryable=True)
 
     try:
         job_id, item_id = _create_background_analysis_job_internal(
@@ -1256,12 +1417,13 @@ def complete_upload_session():
             filename=filename,
             source_type=source_type,
             requested_by=requested_by,
+            output_path=manifest_path,
         )
     except Exception:
         return _error_response('File assembled, but failed to create analysis job', 500, 'DATABASE_ERROR', retryable=True)
 
     with _upload_sessions_lock:
-        session['assembled_path'] = assembled_path
+        session['assembled_path'] = manifest_path
         session['job_id'] = job_id
         session['status'] = 'completed'
         try:
@@ -1273,7 +1435,7 @@ def complete_upload_session():
     return jsonify({
         'session_id': session_id,
         'status': 'completed',
-        'assembled_path': assembled_path,
+        'assembled_path': manifest_path,
         'job_id': job_id,
         'item_id': item_id,
         'request_id': _get_request_id(),
@@ -1358,6 +1520,11 @@ def train_rf_model():
         save_result = classifier.save_model(str(local_model_path))
         if save_result.get('error'):
             raise ValueError(save_result['error'])
+
+        # Also keep a stable local artifact for automatic startup loading.
+        stable_save_result = classifier.save_model()
+        if stable_save_result.get('error'):
+            raise ValueError(stable_save_result['error'])
 
         artifact_path = f"{org_id}/rf_models/rf_cicids2019_{version}.pkl"
         with open(local_model_path, 'rb') as artifact:
@@ -1445,15 +1612,41 @@ def train_rf_model():
         log.exception('RF training failed')
         return _error_response(str(exc), 500, 'TRAINING_ERROR', retryable=False)
 
+
+@main.route('/rf/load-latest', methods=['POST'])
+def load_latest_rf_model():
+    payload = request.get_json(silent=True) or {}
+    org_id = payload.get('org_id')
+    log = _request_logger(route='load_latest_rf_model', org_id=org_id)
+
+    try:
+        details = _load_latest_rf_model(org_id=org_id)
+        return jsonify({
+            'status': 'loaded',
+            'details': details,
+            'request_id': _get_request_id(),
+        }), 200
+    except Exception as exc:
+        log.exception('Failed to load latest RF model')
+        return _error_response(str(exc), 500, 'MODEL_LOAD_ERROR', retryable=True)
+
 @main.route('/analysis/<file_id>', methods=['GET'])
 def get_analysis(file_id):
     log = _request_logger(route='get_analysis', file_id=file_id)
     include_mitre_links = request.args.get('include_mitre_links', 'true').strip().lower() != 'false'
 
-    result = supabase_client.table('analysis_results').select('*').eq('file_id', file_id).order(
-        'created_at',
-        desc=True,
-    ).limit(1).execute()
+    if not _is_uuid(file_id):
+        return _error_response('file_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    try:
+        result = supabase_client.table('analysis_results').select('*').eq('file_id', file_id).order(
+            'created_at',
+            desc=True,
+        ).limit(1).execute()
+    except Exception:
+        # Some environments still have the older analysis_results schema without created_at.
+        log.exception('Failed to order analysis results by created_at; retrying without ordering')
+        result = supabase_client.table('analysis_results').select('*').eq('file_id', file_id).limit(1).execute()
 
     if not result.data:
         return _error_response('No analysis found for this file', 404, 'NOT_FOUND')

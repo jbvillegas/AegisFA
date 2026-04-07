@@ -3,9 +3,11 @@ from collections import Counter
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import accuracy_score, confusion_matrix, precision_recall_fscore_support
+from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
 
 # Model cache
@@ -33,6 +35,7 @@ class LogClassifier: #LABELS
     
     def __init__(self):
         self.model = None
+        self.base_model = None
         self.vectorizer = TfidfVectorizer(max_features=500, ngram_range=(1, 2))
         self.label_encoder = LabelEncoder()
         self.label_encoder.fit(self.LOG_CATEGORIES)
@@ -40,7 +43,7 @@ class LogClassifier: #LABELS
         self.training_metadata = {}
 
     def _flatten_pairs(self, data: Dict, prefix: str = "") -> List[Tuple[str, str]]:
-        """Flatten nested dictionaries/lists into key-value text pairs."""
+    
         pairs: List[Tuple[str, str]] = []
         if not isinstance(data, dict):
             return pairs
@@ -116,18 +119,45 @@ class LogClassifier: #LABELS
         y = self.label_encoder.transform(labels)
         
         # Train Random Forest
-        self.model = RandomForestClassifier(
+        self.base_model = RandomForestClassifier(
             n_estimators=100,
             max_depth=20,
             random_state=42,
             n_jobs=-1
         )
-        self.model.fit(X, y)
+        self.base_model.fit(X, y)
+
+        # Calibrate probabilities to reduce over/under-confidence.
+        calibration_method = "none"
+        class_counts = Counter(y)
+        min_class_count = min(class_counts.values()) if class_counts else 0
+        if min_class_count >= 2 and len(y) >= 20:
+            cv_splits = min(5, min_class_count)
+            cv = StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=42)
+            try:
+                calibrated = CalibratedClassifierCV(
+                    estimator=self.base_model,
+                    method='sigmoid',
+                    cv=cv,
+                )
+            except TypeError:
+                calibrated = CalibratedClassifierCV(
+                    base_estimator=self.base_model,
+                    method='sigmoid',
+                    cv=cv,
+                )
+            calibrated.fit(X, y)
+            self.model = calibrated
+            calibration_method = f"sigmoid_cv{cv_splits}"
+        else:
+            self.model = self.base_model
+
         self.is_trained = True
         self.training_metadata = {
             "label_distribution": dict(Counter(labels)),
             "n_samples": len(training_data),
             "classes": classes,
+            "calibration_method": calibration_method,
         }
         
         # Calculate training accuracy
@@ -139,6 +169,7 @@ class LogClassifier: #LABELS
             "n_samples": len(training_data),
             "categories": classes,
             "label_distribution": dict(Counter(labels)),
+            "calibration_method": calibration_method,
         }
 
     def evaluate(self, labeled_data: List[Tuple[Dict, str]]) -> Dict:
@@ -327,6 +358,7 @@ class LogClassifier: #LABELS
         with open(filepath, 'wb') as f:
             pickle.dump({
                 'model': self.model,
+                'base_model': self.base_model,
                 'vectorizer': self.vectorizer,
                 'label_encoder': self.label_encoder,
                 'training_metadata': self.training_metadata,
@@ -345,6 +377,7 @@ class LogClassifier: #LABELS
         with open(filepath, 'rb') as f:
             data = pickle.load(f)
             self.model = data['model']
+            self.base_model = data.get('base_model')
             self.vectorizer = data['vectorizer']
             self.label_encoder = data['label_encoder']
             self.training_metadata = data.get('training_metadata', {})
@@ -358,4 +391,9 @@ def get_classifier() -> LogClassifier:
     global _rf_model
     if _rf_model is None:
         _rf_model = LogClassifier()
+        try:
+            _rf_model.load_model()
+        except Exception:
+            # Startup should not fail when no local model artifact exists yet.
+            pass
     return _rf_model
