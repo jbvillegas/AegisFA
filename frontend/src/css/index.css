@@ -1,0 +1,154 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --background-color: #0b1118;
+  --background-alt: #101826;
+  --surface: rgba(15, 24, 36, 0.92);
+  --surface-elevated: rgba(20, 31, 46, 0.96);
+  --surface-soft: rgba(20, 31, 46, 0.72);
+  --border-color: rgba(154, 174, 197, 0.18);
+  --border-strong: rgba(154, 174, 197, 0.32);
+  --text-color: #ecf2f8;
+  --muted-color: #9ba9bb;
+  --accent: #87a2c8;
+  --accent-strong: #6686b6;
+  --accent-soft: rgba(103, 132, 177, 0.2);
+  --danger: #d97b7b;
+  --success: #7cb8a6;
+  --shadow-lg: 0 28px 60px rgba(0, 0, 0, 0.42);
+  --shadow-md: 0 16px 32px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 8px 18px rgba(0, 0, 0, 0.18);
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --spacing-xs: 0.5rem;
+  --spacing-sm: 0.75rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 2.75rem;
+  --spacing-3xl: 4rem;
+  --font-family: 'Space Grotesk', 'IBM Plex Sans', sans-serif;
+  --font-family-alt: 'IBM Plex Sans', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-weight-normal: 400;
+  --font-weight-light: 300;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --transition: 180ms ease;
+  --container-width: 1200px;
+}
+
+html {
+  min-height: 100%;
+  background: var(--background-color);
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--font-family-alt);
+  color: var(--text-color);
+  background:
+    radial-gradient(circle at top left, rgba(103, 132, 177, 0.18), transparent 28%),
+    radial-gradient(circle at top right, rgba(135, 162, 200, 0.1), transparent 22%),
+    linear-gradient(180deg, #0b1118 0%, #0f1622 40%, #0b1118 100%);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(154, 174, 197, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 174, 197, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.22), transparent 85%);
+  opacity: 0.4;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+#root,
+.app-shell {
+  min-height: 100vh;
+}
+
+.app-shell {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-wrap {
+  flex: 1;
+  width: min(var(--container-width), calc(100% - 2rem));
+  margin: 0 auto;
+  padding: var(--spacing-xl) 0 var(--spacing-3xl);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.panel {
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: clamp(1.5rem, 3vw, 2.25rem);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, rgba(22, 33, 48, 0.95), rgba(14, 22, 33, 0.96));
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(16px);
+}
+
+.panel h1,
+.panel h2,
+.panel h3 {
+  font-family: var(--font-family);
+  letter-spacing: -0.03em;
+}
+
+.panel p + p,
+.panel h1 + p,
+.panel h2 + p,
+.panel h3 + p {
+  margin-top: 0.75rem;
+}
+
+.panel a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.panel a:hover {
+  text-decoration: underline;
+}

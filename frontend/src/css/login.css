@@ -1,0 +1,93 @@
+.login-page {
+	width: min(520px, 100%);
+	margin: 0 auto;
+	padding: clamp(1.5rem, 4vw, 2.5rem);
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius-lg);
+	background: linear-gradient(180deg, rgba(20, 31, 46, 0.96), rgba(13, 20, 30, 0.98));
+	box-shadow: var(--shadow-lg);
+	display: grid;
+	gap: 1.25rem;
+}
+
+.login-page h1 {
+	font-family: var(--font-family);
+	font-size: clamp(1.8rem, 3vw, 2.2rem);
+	letter-spacing: -0.04em;
+}
+
+.login-page > button,
+.login-page form button {
+	width: 100%;
+	min-height: 3rem;
+	border: 1px solid transparent;
+	border-radius: 999px;
+	font-weight: var(--font-weight-semibold);
+	transition: transform var(--transition), background var(--transition), border-color var(--transition), color var(--transition), opacity var(--transition);
+}
+
+.login-page > button {
+	background: rgba(255, 255, 255, 0.04);
+	border-color: var(--border-strong);
+	color: var(--text-color);
+}
+
+.login-page > button:hover,
+.login-page form button:hover {
+	transform: translateY(-1px);
+}
+
+.login-page form {
+	display: grid;
+	gap: 0.9rem;
+}
+
+.login-page form > div {
+	display: grid;
+	gap: 0.4rem;
+}
+
+.login-page label {
+	color: var(--muted-color);
+	font-size: 0.92rem;
+	font-weight: var(--font-weight-medium);
+}
+
+.login-page input {
+	width: 100%;
+	padding: 0.85rem 1rem;
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius-sm);
+	background: rgba(255, 255, 255, 0.03);
+	color: var(--text-color);
+}
+
+.login-page input::placeholder {
+	color: var(--muted-color);
+}
+
+.login-page input:focus {
+	border-color: var(--border-strong);
+	outline: none;
+	box-shadow: 0 0 0 4px rgba(103, 132, 177, 0.12);
+}
+
+.login-page form button {
+	margin-top: 0.2rem;
+	background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+	color: #09111b;
+}
+
+.login-page button:disabled {
+	opacity: 0.72;
+	cursor: not-allowed;
+}
+
+.login-error {
+	padding: 0.8rem 1rem;
+	border: 1px solid rgba(217, 123, 123, 0.3);
+	border-radius: var(--radius-sm);
+	background: rgba(217, 123, 123, 0.08);
+	color: #f0b2b2;
+	font-size: 0.92rem;
+}
