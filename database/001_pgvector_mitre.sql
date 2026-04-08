@@ -62,7 +62,7 @@ create index if not exists idx_raw_logs_file on raw_logs(file_id);
 -- 7. Similarity search function (called via supabase.rpc())
 create or replace function match_mitre_techniques(
     query_embedding vector(1536),
-    match_threshold float default 0.3,
+    match_threshold float default 0.5,
     match_count int default 5
 )
 returns table (
