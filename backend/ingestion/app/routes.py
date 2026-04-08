@@ -460,6 +460,33 @@ def _job_logger(**fields):
     return logger.bind(request_id=str(uuid4()), **fields)
 
 
+def _resolve_analysis_org_id(org_id: str | None, requested_by: str | None = None) -> str:
+    if _is_uuid(org_id):
+        return str(org_id)
+
+    if requested_by and _is_uuid(requested_by):
+        user_result = supabase_client.table('users').select('org_id').eq('id', requested_by).limit(1).execute()
+        user_row = (user_result.data or [None])[0]
+        resolved_org_id = user_row.get('org_id') if user_row else None
+        if _is_uuid(resolved_org_id):
+            return str(resolved_org_id)
+
+    raise ValueError('org_id must be a UUID or resolvable from requested_by')
+
+
+def _resolve_requested_by_id(requested_by: str | None) -> str | None:
+    if not _is_uuid(requested_by):
+        return None
+
+    try:
+        user_result = supabase_client.table('users').select('id').eq('id', requested_by).limit(1).execute()
+    except Exception:
+        return None
+
+    user_row = (user_result.data or [None])[0]
+    return str(user_row['id']) if user_row and user_row.get('id') else None
+
+
 def _update_analysis_job(job_id: str, updates: dict):
     try:
         _execute_with_retry(
@@ -485,10 +512,12 @@ def _create_background_analysis_job_internal(
     requested_by: str | None = None,
     output_path: str | None = None,
 ):
-    resolved_output_path = output_path or f"{org_id}/{filename}"
+    resolved_org_id = _resolve_analysis_org_id(org_id, requested_by=requested_by)
+    resolved_requested_by = _resolve_requested_by_id(requested_by)
+    resolved_output_path = output_path or f"{resolved_org_id}/{filename}"
     job_result = supabase_client.table('analysis_jobs').insert({
-        'org_id': org_id,
-        'requested_by': requested_by,
+        'org_id': resolved_org_id,
+        'requested_by': resolved_requested_by,
         'status': 'queued',
         'source_type': source_type,
         'total_files': 1,
@@ -510,7 +539,7 @@ def _create_background_analysis_job_internal(
 
     worker = Thread(
         target=_run_background_analysis_job,
-        args=(job_id, item_id, org_id, filename, source_type, resolved_output_path),
+        args=(job_id, item_id, resolved_org_id, filename, source_type, resolved_output_path),
         daemon=True,
     )
     worker.start()
@@ -750,6 +779,16 @@ def _progress_event(step: str, message: str, progress_pct: int, **extra):
     }
     payload.update(extra)
     return payload
+
+
+@main.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        'service': 'AegisFA ingestion API',
+        'status': 'ok',
+        'message': 'Use the API endpoints under /ingest, /upload, /analysis, or /timeline.',
+        'request_id': _get_request_id(),
+    })
 
 @main.route('/ingest', methods=['POST'])
 def ingest():
@@ -1140,6 +1179,8 @@ def create_background_analysis_job():
             source_type=source_type,
             requested_by=requested_by,
         )
+    except ValueError as exc:
+        return _error_response(str(exc), 400, 'VALIDATION_ERROR')
     except Exception:
         log.exception('Failed to create background analysis job')
         return _error_response('Failed to create analysis job', 500, 'DATABASE_ERROR', retryable=True)
@@ -1419,6 +1460,8 @@ def complete_upload_session():
             requested_by=requested_by,
             output_path=manifest_path,
         )
+    except ValueError as exc:
+        return _error_response(str(exc), 400, 'VALIDATION_ERROR')
     except Exception:
         return _error_response('File assembled, but failed to create analysis job', 500, 'DATABASE_ERROR', retryable=True)
 
@@ -1661,6 +1704,84 @@ def get_analysis(file_id):
 
     log.info('Retrieved analysis result')
     return jsonify(response_payload), 200
+
+
+@main.route('/timeline/file/<file_id>', methods=['GET'])
+def get_file_timeline_route(file_id):
+    log = _request_logger(route='get_file_timeline', file_id=file_id)
+
+    if not _is_uuid(file_id):
+        return _error_response('file_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    start = request.args.get('start')
+    end = request.args.get('end')
+    severity = request.args.get('severity')
+    event_type = request.args.get('event_type')
+
+    try:
+        page = int(request.args.get('page', '1'))
+        page_size = int(request.args.get('page_size', '100'))
+    except (TypeError, ValueError):
+        return _error_response('page and page_size must be integers', 400, 'VALIDATION_ERROR')
+
+    if page <= 0 or page_size <= 0:
+        return _error_response('page and page_size must be greater than 0', 400, 'VALIDATION_ERROR')
+
+    try:
+        timeline = get_file_timeline(
+            file_id=file_id,
+            start=start,
+            end=end,
+            severity=severity,
+            event_type=event_type,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception:
+        log.exception('Failed to fetch file timeline')
+        return _error_response('Failed to fetch file timeline', 500, 'DATABASE_ERROR', retryable=True)
+
+    timeline['request_id'] = _get_request_id()
+    return jsonify(timeline), 200
+
+
+@main.route('/timeline/org/<org_id>', methods=['GET'])
+def get_org_timeline_route(org_id):
+    log = _request_logger(route='get_org_timeline', org_id=org_id)
+
+    if not _is_uuid(org_id):
+        return _error_response('org_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    start = request.args.get('start')
+    end = request.args.get('end')
+    severity = request.args.get('severity')
+    event_type = request.args.get('event_type')
+
+    try:
+        page = int(request.args.get('page', '1'))
+        page_size = int(request.args.get('page_size', '100'))
+    except (TypeError, ValueError):
+        return _error_response('page and page_size must be integers', 400, 'VALIDATION_ERROR')
+
+    if page <= 0 or page_size <= 0:
+        return _error_response('page and page_size must be greater than 0', 400, 'VALIDATION_ERROR')
+
+    try:
+        timeline = get_org_timeline(
+            org_id=org_id,
+            start=start,
+            end=end,
+            severity=severity,
+            event_type=event_type,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception:
+        log.exception('Failed to fetch org timeline')
+        return _error_response('Failed to fetch org timeline', 500, 'DATABASE_ERROR', retryable=True)
+
+    timeline['request_id'] = _get_request_id()
+    return jsonify(timeline), 200
 
 @main.route('/analyze/<file_id>', methods=['POST'])
 def analyze_stored_file(file_id):
