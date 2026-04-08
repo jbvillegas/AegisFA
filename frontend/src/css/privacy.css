@@ -1,0 +1,111 @@
+.privacy-page {
+  display: grid;
+  gap: var(--spacing-lg);
+  width: min(1040px, 100%);
+}
+
+.privacy-hero {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.privacy-kicker {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.privacy-hero h1 {
+  font-size: clamp(1.8rem, 3.1vw, 2.45rem);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+}
+
+.privacy-section {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem 1.05rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.privacy-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.privacy-card,
+.privacy-third-party-card {
+  display: grid;
+  gap: 0.48rem;
+  padding: 0.82rem 0.86rem;
+  border: 1px solid rgba(154, 174, 197, 0.16);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.privacy-card h3,
+.privacy-third-party-card h3 {
+  font-size: 0.98rem;
+  letter-spacing: -0.01em;
+}
+
+.privacy-card p,
+.privacy-third-party-card p {
+  color: var(--muted-color);
+  font-size: 0.9rem;
+}
+
+.privacy-list {
+  margin-left: 1rem;
+  display: grid;
+  gap: 0.55rem;
+  color: var(--muted-color);
+}
+
+.privacy-third-party-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.privacy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.privacy-btn {
+  border-radius: 999px;
+  padding: 0.72rem 1.1rem;
+  text-decoration: none;
+  border: 1px solid transparent;
+  font-weight: var(--font-weight-semibold);
+  transition: transform var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
+}
+
+.privacy-btn:hover {
+  transform: translateY(-1px);
+}
+
+.privacy-btn.primary {
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  color: #09111b;
+}
+
+.privacy-btn.secondary {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--border-strong);
+  color: var(--text-color);
+}
+
+@media (max-width: 900px) {
+  .privacy-grid,
+  .privacy-third-party-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import SearchBar from '../components/search-bar.jsx';
 import { supabase } from '../client.js';
+import { usePersistentState } from '../hooks/use-persistent-state.js';
 import '../css/admindashboard.css';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
@@ -29,8 +30,12 @@ function getLocalOrgId(user) {
 	return (
 		user?.user_metadata?.org_id ||
 		user?.app_metadata?.org_id ||
-		(user?.email ? user.email.split('@')[0] : '')
+		''
 	);
+}
+
+function isUuid(value) {
+	return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
 function getSeverityScore(value) {
@@ -38,28 +43,32 @@ function getSeverityScore(value) {
 }
 
 async function fetchLatestCompletedFileForOrg(orgId) {
-	const primary = await supabase
-		.from('log_files')
-		.select('id, created_at')
-		.eq('org_id', orgId)
-		.eq('status', 'completed')
-		.order('created_at', { ascending: false })
-		.limit(1);
+	const candidates = ['uploaded_at', 'created_at'];
 
-	if (!primary.error) {
-		return primary.data?.[0] || null;
-	}
+	for (const timestampField of candidates) {
+		const result = await supabase
+			.from('log_files')
+			.select(`id, ${timestampField}`)
+			.eq('org_id', orgId)
+			.eq('status', 'completed')
+			.order(timestampField, { ascending: false })
+			.limit(1);
 
-	if (!String(primary.error.message || '').includes('created_at')) {
-		throw primary.error;
+		if (!result.error) {
+			return result.data?.[0] || null;
+		}
+
+		const message = String(result.error.message || '').toLowerCase();
+		if (!(message.includes(timestampField) && message.includes('column'))) {
+			throw result.error;
+		}
 	}
 
 	const fallback = await supabase
 		.from('log_files')
-		.select('id, uploaded_at')
+		.select('id')
 		.eq('org_id', orgId)
 		.eq('status', 'completed')
-		.order('uploaded_at', { ascending: false })
 		.limit(1);
 
 	if (fallback.error) {
@@ -70,7 +79,7 @@ async function fetchLatestCompletedFileForOrg(orgId) {
 }
 
 function AdminDashboard() {
-	const [orgId, setOrgId] = useState('');
+	const [orgId, setOrgId] = usePersistentState('aegisfa-org-id', '');
 	const [timelineEvents, setTimelineEvents] = useState([]);
 	const [importantFindings, setImportantFindings] = useState([]);
 	const [isLoading, setIsLoading] = useState(false);
@@ -81,9 +90,7 @@ function AdminDashboard() {
 		let isMounted = true;
 
 		const loadContext = async () => {
-			const localOrgId = window.localStorage.getItem('aegisfa-org-id');
-			if (localOrgId && isMounted) {
-				setOrgId(localOrgId);
+			if (orgId && isMounted) {
 				return;
 			}
 
@@ -92,7 +99,10 @@ function AdminDashboard() {
 				return;
 			}
 
-			setOrgId(getLocalOrgId(data?.user || null));
+			const derivedOrgId = getLocalOrgId(data?.user || null);
+			if (isUuid(derivedOrgId)) {
+				setOrgId(derivedOrgId);
+			}
 		};
 
 		loadContext();
@@ -100,7 +110,7 @@ function AdminDashboard() {
 		return () => {
 			isMounted = false;
 		};
-	}, []);
+	}, [orgId, setOrgId]);
 
 	useEffect(() => {
 		const loadTimelinePreview = async () => {
@@ -123,20 +133,44 @@ function AdminDashboard() {
 				}
 
 				setLatestFileId(latestFile.id);
+				let analysis = null;
 				const analysisResponse = await fetch(`${API_BASE_URL}/analysis/${latestFile.id}?include_mitre_links=false`);
-				if (!analysisResponse.ok) {
-					throw new Error('Failed to load analysis timeline.');
+				if (analysisResponse.ok) {
+					analysis = await analysisResponse.json();
 				}
 
-				const analysis = await analysisResponse.json();
-				const timeline = Array.isArray(analysis.timeline) ? analysis.timeline : [];
-				const findings = Array.isArray(analysis.detailed_findings) ? analysis.detailed_findings : [];
+				let timeline = Array.isArray(analysis?.timeline) ? analysis.timeline : [];
+				const findings = Array.isArray(analysis?.detailed_findings) ? analysis.detailed_findings : [];
+
+				if (timeline.length === 0) {
+					const timelineResponse = await fetch(`${API_BASE_URL}/timeline/file/${latestFile.id}?page=1&page_size=20`);
+					if (timelineResponse.ok) {
+						const timelinePayload = await timelineResponse.json();
+						timeline = (timelinePayload.items || []).map((item) => ({
+							event: item.summary || item.type || 'Timeline event',
+							timestamp: item.timestamp,
+							description: item.details?.description || '',
+						}));
+					}
+				}
+
+				if (timeline.length === 0) {
+					const orgTimelineResponse = await fetch(`${API_BASE_URL}/timeline/org/${orgId.trim()}?page=1&page_size=20`);
+					if (orgTimelineResponse.ok) {
+						const orgTimelinePayload = await orgTimelineResponse.json();
+						timeline = (orgTimelinePayload.items || []).map((item) => ({
+							event: item.summary || item.type || 'Timeline event',
+							timestamp: item.timestamp,
+							description: item.details?.description || '',
+						}));
+					}
+				}
 
 				const recentTimeline = timeline
 					.map((item, index) => ({
 						id: `timeline-${index}`,
 						title: item.event || 'Timeline event',
-						timestamp: item.timestamp || analysis.created_at,
+						timestamp: item.timestamp || analysis?.created_at,
 						description: item.description || item.details || '',
 					}))
 					.sort((left, right) => {

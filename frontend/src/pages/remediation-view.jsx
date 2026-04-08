@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../client.js';
+import { usePersistentState } from '../hooks/use-persistent-state.js';
 import '../css/admindashboard.css';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
@@ -9,8 +10,12 @@ function getLocalOrgId(user) {
   return (
     user?.user_metadata?.org_id ||
     user?.app_metadata?.org_id ||
-    (user?.email ? user.email.split('@')[0] : '')
+    ''
   );
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
 function normalizeAction(item) {
@@ -71,28 +76,32 @@ function extractActions(analysis) {
 }
 
 async function fetchLatestCompletedFileForOrg(orgId) {
-  const primary = await supabase
-    .from('log_files')
-    .select('id, uploaded_at')
-    .eq('org_id', orgId)
-    .eq('status', 'completed')
-    .order('uploaded_at', { ascending: false })
-    .limit(1);
+  const candidates = ['uploaded_at', 'created_at'];
 
-  if (!primary.error) {
-    return primary.data?.[0] || null;
-  }
+  for (const timestampField of candidates) {
+    const result = await supabase
+      .from('log_files')
+      .select(`id, ${timestampField}`)
+      .eq('org_id', orgId)
+      .eq('status', 'completed')
+      .order(timestampField, { ascending: false })
+      .limit(1);
 
-  if (!String(primary.error.message || '').includes('uploaded_at')) {
-    throw primary.error;
+    if (!result.error) {
+      return result.data?.[0] || null;
+    }
+
+    const message = String(result.error.message || '').toLowerCase();
+    if (!(message.includes(timestampField) && message.includes('column'))) {
+      throw result.error;
+    }
   }
 
   const fallback = await supabase
     .from('log_files')
-    .select('id, created_at')
+    .select('id')
     .eq('org_id', orgId)
     .eq('status', 'completed')
-    .order('created_at', { ascending: false })
     .limit(1);
 
   if (fallback.error) {
@@ -118,7 +127,7 @@ async function fetchFileById(fileId) {
 
 function RemediationView() {
   const { remediationId } = useParams();
-  const [orgId, setOrgId] = useState('');
+  const [orgId, setOrgId] = usePersistentState('aegisfa-org-id', '');
   const [fileId, setFileId] = useState(remediationId || '');
   const [actions, setActions] = useState([]);
   const [analysisSummary, setAnalysisSummary] = useState('');
@@ -129,9 +138,7 @@ function RemediationView() {
     let isMounted = true;
 
     const loadOrgContext = async () => {
-      const localOrg = window.localStorage.getItem('aegisfa-org-id');
-      if (localOrg && isMounted) {
-        setOrgId(localOrg);
+      if (orgId && isMounted) {
         return;
       }
 
@@ -140,7 +147,10 @@ function RemediationView() {
         return;
       }
 
-      setOrgId(getLocalOrgId(data?.user || null));
+      const derivedOrgId = getLocalOrgId(data?.user || null);
+      if (isUuid(derivedOrgId)) {
+        setOrgId(derivedOrgId);
+      }
     };
 
     loadOrgContext();
@@ -148,7 +158,7 @@ function RemediationView() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [orgId, setOrgId]);
 
   useEffect(() => {
     setFileId(remediationId || '');

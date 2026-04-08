@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../client.js';
+import { usePersistentState } from '../hooks/use-persistent-state.js';
 import '../css/dashboard.css';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
@@ -69,8 +70,12 @@ function getLocalOrgId(user) {
   return (
     user?.user_metadata?.org_id ||
     user?.app_metadata?.org_id ||
-    (user?.email ? user.email.split('@')[0] : '')
+    ''
   );
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
 function formatTimestamp(timestamp) {
@@ -223,28 +228,32 @@ function getMitreTechniqueUrl(techniqueId) {
 }
 
 async function fetchLatestCompletedFileForOrg(orgId) {
-  const primary = await supabase
-    .from('log_files')
-    .select('id, status, uploaded_at')
-    .eq('org_id', orgId)
-    .eq('status', 'completed')
-    .order('uploaded_at', { ascending: false })
-    .limit(1);
+  const candidates = ['uploaded_at', 'created_at'];
 
-  if (!primary.error) {
-    return primary.data?.[0] || null;
-  }
+  for (const timestampField of candidates) {
+    const result = await supabase
+      .from('log_files')
+      .select(`id, status, ${timestampField}`)
+      .eq('org_id', orgId)
+      .eq('status', 'completed')
+      .order(timestampField, { ascending: false })
+      .limit(1);
 
-  if (!String(primary.error.message || '').includes('uploaded_at')) {
-    throw primary.error;
+    if (!result.error) {
+      return result.data?.[0] || null;
+    }
+
+    const message = String(result.error.message || '').toLowerCase();
+    if (!(message.includes(timestampField) && message.includes('column'))) {
+      throw result.error;
+    }
   }
 
   const fallback = await supabase
     .from('log_files')
-    .select('id, status, created_at')
+    .select('id, status')
     .eq('org_id', orgId)
     .eq('status', 'completed')
-    .order('created_at', { ascending: false })
     .limit(1);
 
   if (fallback.error) {
@@ -273,9 +282,10 @@ function formatDuration(totalSeconds) {
 function DashboardPage() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [fileInputKey, setFileInputKey] = useState(0);
-  const [sourceType, setSourceType] = useState('custom');
-  const [orgId, setOrgId] = useState('');
+  const [sourceType, setSourceType] = usePersistentState('aegisfa-source-type', 'custom');
+  const [orgId, setOrgId] = usePersistentState('aegisfa-org-id', '');
   const [requestedBy, setRequestedBy] = useState('');
+  const [requestedById, setRequestedById] = useState('');
   const [uploadStage, setUploadStage] = useState('idle');
   const [uploadMessage, setUploadMessage] = useState('Choose a log file to start.');
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -283,13 +293,13 @@ function DashboardPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [jobSummary, setJobSummary] = useState(null);
-  const [analysisResult, setAnalysisResult] = useState(null);
-  const [summarySnapshot, setSummarySnapshot] = useState(SUMMARY_DEFAULTS);
+  const [jobSummary, setJobSummary] = usePersistentState('aegisfa-last-job-summary', null);
+  const [analysisResult, setAnalysisResult] = usePersistentState('aegisfa-last-analysis-result', null);
+  const [summarySnapshot, setSummarySnapshot] = usePersistentState('aegisfa-summary-snapshot', SUMMARY_DEFAULTS);
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState('');
   const [latestAnalysis, setLatestAnalysis] = useState(null);
-  const [recentJobs, setRecentJobs] = useState([]);
+  const [recentJobs, setRecentJobs] = usePersistentState('aegisfa-recent-jobs', []);
   const [isRecentJobsLoading, setIsRecentJobsLoading] = useState(false);
   const [recentJobsError, setRecentJobsError] = useState('');
   const [analysisStartedAt, setAnalysisStartedAt] = useState(null);
@@ -306,7 +316,15 @@ function DashboardPage() {
 
       const user = data?.user || null;
       setRequestedBy(user?.email || '');
-      setOrgId((current) => current || getLocalOrgId(user));
+      setRequestedById(user?.id || '');
+      setOrgId((current) => {
+        if (isUuid(current)) {
+          return current;
+        }
+
+        const localOrgId = getLocalOrgId(user);
+        return isUuid(localOrgId) ? localOrgId : '';
+      });
     };
 
     loadUser();
@@ -317,17 +335,14 @@ function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const storedOrgId = window.localStorage.getItem('aegisfa-org-id');
-    if (storedOrgId) {
-      setOrgId(storedOrgId);
+    if (!orgId) {
+      return;
     }
-  }, []);
 
-  useEffect(() => {
-    if (orgId.trim()) {
-      window.localStorage.setItem('aegisfa-org-id', orgId.trim());
+    if (!isUuid(orgId)) {
+      setOrgId('');
     }
-  }, [orgId]);
+  }, [orgId, setOrgId]);
 
   const refreshSummaryCards = async () => {
     if (!orgId.trim()) {
@@ -626,7 +641,7 @@ function DashboardPage() {
         },
         body: JSON.stringify({
           session_id: sessionId,
-          requested_by: requestedBy || null,
+          requested_by: requestedById || null,
         }),
       });
 
@@ -777,21 +792,7 @@ function DashboardPage() {
 
   return (
     <section className="homepage">
-      <section className="hero" aria-labelledby="hero-title">
-        <div className="hero-content">
-          <h1 id="hero-title">Security Log Analysis Platform</h1>
-          <p className="hero-subtitle">
-            Detect threats, analyze patterns, and understand your security posture
-          </p>
-          <div className="hero-actions">
-            <button type="button" className="hero-btn primary" onClick={() => document.getElementById('upload-file')?.focus()}>
-              Upload Log File Now
-            </button>
-            <button type="button" className="hero-btn secondary">View Demo</button>
-          </div>
-        </div>
-      </section>
-
+      
       <section className="upload-panel" aria-labelledby="upload-panel-title">
         <div className="upload-panel-copy">
           <p className="panel-kicker">Primary Upload</p>

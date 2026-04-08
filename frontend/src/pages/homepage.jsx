@@ -7,32 +7,33 @@ function HomePage() {
       <section className="hero intro-hero" aria-labelledby="hero-title">
         <div className="hero-content">
           <p className="panel-kicker">AegisFA</p>
-          <h1 id="hero-title">Forensic Assistant for Security Operations</h1>
+          <h1 id="hero-title">Evidence-Driven Security Operations, Faster</h1>
           <p className="hero-subtitle">
-            We help security teams ingest logs, detect threats, map findings to MITRE ATT&CK, and turn analysis into actionable response.
+            AegisFA helps analysts turn raw telemetry into reliable decisions through structured ingestion, threat correlation, and investigation-ready context.
           </p>
-          <div className="hero-actions">
-            <Link to="/dashboard" className="hero-btn primary">Go to Dashboard</Link>
-            <Link to="/login" className="hero-btn secondary">Sign In</Link>
+          <div className="hero-actions" aria-label="Primary navigation">
+            <Link to="/dashboard" className="hero-btn primary">Open Dashboard</Link>
+            <Link to="/login" className="hero-btn secondary">Analyst Sign In</Link>
           </div>
         </div>
       </section>
 
       <section className="content-area intro-content" aria-labelledby="intro-title">
         <header>
-          <p>What We Do</p>
-          <h2 id="intro-title">Security analytics built for investigation speed</h2>
+          <p>Platform Overview</p>
+          <h2 id="intro-title">Built for SOC teams that need clarity under pressure</h2>
           <p>
-            AegisFA centralizes log uploads, automated threat analysis, and investigation context so teams can move from alert to decision faster.
+            From initial triage to remediation planning, the platform consolidates technical evidence and presents it in a format analysts can trust and act on.
           </p>
         </header>
 
         <section aria-labelledby="capabilities-title">
           <h2 id="capabilities-title">Core Capabilities</h2>
           <ul>
-            <li>Log ingestion and normalization for common security sources</li>
-            <li>Threat classification and correlation-backed detection</li>
-            <li>MITRE mapping, timeline context, and investigation guidance</li>
+            <li>Ingest and normalize event data across common network and endpoint log sources.</li>
+            <li>Correlate suspicious activity with model-assisted classification and risk context.</li>
+            <li>Map findings to MITRE ATT&CK techniques with timeline-based investigation support.</li>
+            <li>Generate remediation guidance that can be handed directly to response teams.</li>
           </ul>
         </section>
       </section>
