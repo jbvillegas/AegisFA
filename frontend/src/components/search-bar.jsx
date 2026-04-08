@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../client';
+import { usePersistentState } from '../hooks/use-persistent-state.js';
 import '../css/searchbar.css';
 
 function SearchBar() {
@@ -9,8 +10,8 @@ function SearchBar() {
   const [searchTerm, setSearchTerm] = useState(param);
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [storedOrgId] = usePersistentState('aegisfa-org-id', '');
   const navigate = useNavigate();
-  const storedOrgId = window.localStorage.getItem('aegisfa-org-id') || '';
 
   useEffect(() => {
     setSearchTerm(param);
@@ -108,12 +109,6 @@ function SearchBar() {
           </div>
         )}
       </div>
-      <button className="search-button" onClick={() => handleSearch()}>
-        Search
-      </button>
-      <button className="clear-button" onClick={handleClear}>
-        Clear
-      </button>
     </div>
   );
 }

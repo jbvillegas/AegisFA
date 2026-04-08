@@ -13,6 +13,7 @@ function Footer() {
           <div className="footer-section">
             <h4 className="footer-heading">Navigation</h4>
             <ul className="footer-list">
+              <li><Link to="/">Home</Link></li>
               <li><Link to="/dashboard">Dashboard</Link></li>
               <li><Link to="/admin">Admin</Link></li>
             </ul>
@@ -20,16 +21,16 @@ function Footer() {
           <div className="footer-section">
             <h4 className="footer-heading">Resources</h4>
             <ul className="footer-list">
-              <li><a href="#" className="footer-link">About</a></li>
-              <li><a href="#" className="footer-link">Support</a></li>
-              <li><a href="#" className="footer-link">Contact</a></li>
+              <li><Link to="/about" className="footer-link">About</Link></li>
+              <li><Link to="/support" className="footer-link">Support</Link></li>
+              <li><Link to="/contact" className="footer-link">Contact</Link></li>
             </ul>
           </div>
           <div className="footer-section">
             <h4 className="footer-heading">Legal</h4>
             <ul className="footer-list">
-              <li><a href="#" className="footer-link">Privacy</a></li>
-              <li><a href="#" className="footer-link">Terms</a></li>
+              <li><Link to="/privacy" className="footer-link">Privacy</Link></li>
+              <li><Link to="/terms" className="footer-link">Terms</Link></li>
             </ul>
           </div>
         </div>
