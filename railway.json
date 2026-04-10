@@ -1,0 +1,9 @@
+{
+  "services": [
+    {
+      "name": "backend",
+      "root": "backend/ingestion",
+      "startCommand": "python run.py"
+    }
+  ]
+}
