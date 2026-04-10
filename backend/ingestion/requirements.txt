@@ -12,3 +12,4 @@ torch>=2.0.0
 transformers>=4.30.0
 accelerate>=0.30.0
 structlog>=24.1.0
+pytest>=8.2.0

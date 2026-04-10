@@ -4,9 +4,9 @@ from . import supabase_client
 from .openai_client import get_openai_client, get_embedding
 
 
-MITRE_MATCH_THRESHOLD = float(os.getenv("MITRE_MATCH_THRESHOLD", "0.5"))
-MITRE_MIN_SIMILARITY = float(os.getenv("MITRE_MIN_SIMILARITY", "0.5"))
-CONFIDENCE_CONSISTENCY_BONUS = float(os.getenv("CONFIDENCE_CONSISTENCY_BONUS", "0.1"))
+MITRE_MATCH_THRESHOLD = float(os.getenv("MITRE_MATCH_THRESHOLD", "0.45"))
+MITRE_MIN_SIMILARITY = float(os.getenv("MITRE_MIN_SIMILARITY", "0.40"))
+CONFIDENCE_CONSISTENCY_BONUS = float(os.getenv("CONFIDENCE_CONSISTENCY_BONUS", "0.12"))
 
 DDOS_FAMILY_PROFILE = {
     "primary": {
@@ -265,9 +265,9 @@ def analyze_threats(
     )
     computed_confidence = _clamp01(
         (0.20 * llm_confidence)
-        + (0.30 * retrieval_strength)
-        + (0.25 * rf_risk_score)
-        + (0.25 * correlation_strength)
+        + (0.20 * retrieval_strength)
+        + (0.30 * rf_risk_score)
+        + (0.30 * correlation_strength)
         + consistency_bonus
     )
 
@@ -637,15 +637,40 @@ def _score_rf_risk(rf_context: dict | None) -> float:
     non_benign_ratio = max(0.0, min(1.0, (total - benign_count) / total))
     high_conf_total_ratio = max(0.0, min(1.0, (high_conf_anomaly + high_conf_security + high_conf_error) / total))
 
+    # Severity-weighted category score: accounts for the actual threat weight
+    # of each classified category, even when the model has few classes.
+    _CATEGORY_THREAT_WEIGHT = {
+        "benign": 0.0, "normal": 0.0, "normal_traffic": 0.0,
+        "ddos": 0.95, "dos": 0.9, "bot": 0.9,
+        "infiltration": 0.95, "heartbleed": 0.95,
+        "drdos_dns": 0.9, "drdos_ldap": 0.9, "drdos_mssql": 0.9,
+        "drdos_ntp": 0.9, "drdos_netbios": 0.9, "drdos_snmp": 0.9,
+        "drdos_ssdp": 0.9, "drdos_udp": 0.9,
+        "web_bruteforce": 0.85, "web_xss": 0.85, "web_sql_injection": 0.85,
+        "ssh_patator": 0.8, "ftp_patator": 0.8, "portscan": 0.75,
+        "dos_hulk": 0.85, "dos_goldeneye": 0.85,
+        "dos_slowhttptest": 0.8, "dos_slowloris": 0.8,
+        "syn": 0.85, "udp_lag": 0.8,
+    }
+    category_threat_score = 0.0
+    if isinstance(by_category, dict) and total > 0:
+        weighted_sum = 0.0
+        for category, count in by_category.items():
+            normalized = str(category or "").strip().lower()
+            weight = _CATEGORY_THREAT_WEIGHT.get(normalized, 0.5)
+            weighted_sum += weight * int(count or 0)
+        category_threat_score = min(1.0, weighted_sum / total)
+
     score = (
-        (0.26 * average_confidence) +
-        (0.22 * critical_ratio) +
-        (0.16 * high_ratio) +
-        (0.10 * anomaly_ratio) +
-        (0.06 * security_ratio) +
-        (0.02 * error_ratio) +
-        (0.12 * non_benign_ratio) +
-        (0.06 * high_conf_total_ratio)
+        (0.15 * average_confidence) +
+        (0.10 * critical_ratio) +
+        (0.06 * high_ratio) +
+        (0.03 * anomaly_ratio) +
+        (0.02 * security_ratio) +
+        (0.01 * error_ratio) +
+        (0.10 * non_benign_ratio) +
+        (0.05 * high_conf_total_ratio) +
+        (0.48 * category_threat_score)
     )
     return max(0.0, min(1.0, score))
 
@@ -659,6 +684,13 @@ def _clamp01(value) -> float:
 
 
 def _score_retrieval_strength(mitre_techniques: list[dict] | None) -> float:
+    # Observed embedding similarity ceiling for MITRE technique descriptions is
+    # approximately 0.70-0.72.  Raw similarities therefore rarely exceed that,
+    # which would cap this component at ~70%.  We rescale so that the practical
+    # ceiling maps to ~1.0, giving the retrieval component its full weight.
+    _SIMILARITY_FLOOR = 0.35   # below this we treat as noise
+    _SIMILARITY_CEILING = 0.72 # observed practical max for good matches
+
     scores = []
     for item in mitre_techniques or []:
         if not isinstance(item, dict):
@@ -670,8 +702,13 @@ def _score_retrieval_strength(mitre_techniques: list[dict] | None) -> float:
             numeric = float(similarity)
         except (TypeError, ValueError):
             continue
-        value = _clamp01(numeric if numeric <= 1 else numeric / 100)
-        scores.append(value)
+        raw = _clamp01(numeric if numeric <= 1 else numeric / 100)
+        # Rescale into [0, 1] relative to the observed floor/ceiling
+        if raw <= _SIMILARITY_FLOOR:
+            scaled = 0.0
+        else:
+            scaled = min(1.0, (raw - _SIMILARITY_FLOOR) / (_SIMILARITY_CEILING - _SIMILARITY_FLOOR))
+        scores.append(scaled)
 
     if not scores:
         return 0.0
@@ -762,6 +799,27 @@ def _extract_rf_expected_mitre_ids(rf_context: dict | None) -> set[str]:
     return ids
 
 
+def _parent_technique_id(technique_id: str) -> str:
+    """Return the parent technique ID (e.g. T1498.002 -> T1498)."""
+    normalized = _normalize_technique_id(technique_id)
+    if "." in normalized:
+        return normalized.split(".")[0]
+    return normalized
+
+
+def _ids_overlap(set_a: set[str], set_b: set[str]) -> bool:
+    """Check if two sets of MITRE technique IDs overlap, considering parent IDs.
+
+    E.g. {T1498.002} overlaps with {T1498} because T1498.002's parent is T1498.
+    """
+    if set_a.intersection(set_b):
+        return True
+    # Expand both sets with parent IDs and check again
+    expanded_a = set_a | {_parent_technique_id(tid) for tid in set_a}
+    expanded_b = set_b | {_parent_technique_id(tid) for tid in set_b}
+    return bool(expanded_a.intersection(expanded_b))
+
+
 def _compute_evidence_consistency_bonus(
     mitre_techniques: list[dict] | None,
     detections: list[dict] | None,
@@ -771,15 +829,36 @@ def _compute_evidence_consistency_bonus(
     detection_ids = _extract_detection_mitre_ids(detections)
     rf_ids = _extract_rf_expected_mitre_ids(rf_context)
 
-    bonus = 0.0
-    if retrieved_ids and detection_ids and retrieved_ids.intersection(detection_ids):
-        bonus += CONFIDENCE_CONSISTENCY_BONUS * 0.5
-    if retrieved_ids and rf_ids and retrieved_ids.intersection(rf_ids):
-        bonus += CONFIDENCE_CONSISTENCY_BONUS * 0.3
-    if detection_ids and rf_ids and detection_ids.intersection(rf_ids):
-        bonus += CONFIDENCE_CONSISTENCY_BONUS * 0.2
+    # --- Part 1: MITRE ID overlap bonus (up to 60% of cap) ---
+    id_bonus = 0.0
+    if retrieved_ids and detection_ids and _ids_overlap(retrieved_ids, detection_ids):
+        id_bonus += 0.30
+    if retrieved_ids and rf_ids and _ids_overlap(retrieved_ids, rf_ids):
+        id_bonus += 0.18
+    if detection_ids and rf_ids and _ids_overlap(detection_ids, rf_ids):
+        id_bonus += 0.12
 
-    return _clamp01(min(CONFIDENCE_CONSISTENCY_BONUS, bonus))
+    # --- Part 2: Signal agreement bonus (up to 40% of cap) ---
+    # When multiple independent sources agree that an attack is present,
+    # that is evidence consistency even without exact MITRE ID overlap.
+    active_sources = 0
+    if retrieved_ids:                       # MITRE retrieval found matches
+        active_sources += 1
+    if detections:                          # Correlation rules fired
+        active_sources += 1
+    if rf_ids:                              # RF classified as attack (non-benign)
+        active_sources += 1
+
+    # Signal agreement: 2 sources = partial bonus, 3 sources = full bonus
+    if active_sources >= 3:
+        signal_bonus = 0.40
+    elif active_sources >= 2:
+        signal_bonus = 0.25
+    else:
+        signal_bonus = 0.0
+
+    total_ratio = min(1.0, id_bonus + signal_bonus)
+    return _clamp01(min(CONFIDENCE_CONSISTENCY_BONUS, CONFIDENCE_CONSISTENCY_BONUS * total_ratio))
 
 
 def _blend_threat_level(

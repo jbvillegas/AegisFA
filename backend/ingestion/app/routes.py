@@ -4,7 +4,7 @@ from .normalization import normalize_log
 from .file_parser import parse_file, parse_file_with_metadata
 from .rag_service import analyze_threats
 from .correlation_engine import run_correlation
-from .timeline_service import get_file_timeline, get_org_timeline
+from .timeline_service import get_file_timeline, get_org_timeline, get_file_timeline_graph, get_org_timeline_graph
 from .storage import upload_file, download_file, upload_binary, download_binary, BUCKET_NAME
 from .log_classifier import get_classifier
 from .insights_generator import get_insights_generator
@@ -17,6 +17,7 @@ from threading import Thread, Lock
 import time
 import json
 import os
+import re
 import structlog 
 
 main = Blueprint('main', __name__)
@@ -29,23 +30,111 @@ SUPABASE_RETRY_ATTEMPTS = int(os.getenv('SUPABASE_RETRY_ATTEMPTS', '4'))
 SUPABASE_RETRY_BASE_DELAY_SECONDS = float(os.getenv('SUPABASE_RETRY_BASE_DELAY_SECONDS', '0.8'))
 MAX_UPLOAD_PART_BYTES = int(os.getenv('MAX_UPLOAD_PART_BYTES', str(16 * 1024 * 1024)))
 MAX_UPLOAD_SESSION_ASSEMBLY_BYTES = int(os.getenv('MAX_UPLOAD_SESSION_ASSEMBLY_BYTES', str(2 * 1024 * 1024 * 1024)))
+UPLOAD_SESSION_TTL_SECONDS = int(os.getenv('UPLOAD_SESSION_TTL_SECONDS', '3600'))
+MAX_UPLOAD_SESSIONS = int(os.getenv('MAX_UPLOAD_SESSIONS', '100'))
 
 _upload_sessions: dict[str, dict] = {}
 _upload_sessions_lock = Lock()
 
 
-def _load_latest_rf_model(org_id: str | None = None) -> dict:
-    query = (
+def _evict_expired_sessions():
+    """Remove expired sessions. Must be called while holding _upload_sessions_lock."""
+    now = time.time()
+    expired = [
+        sid for sid, session in _upload_sessions.items()
+        if now - session.get('created_at_ts', 0) > UPLOAD_SESSION_TTL_SECONDS
+    ]
+    for sid in expired:
+        del _upload_sessions[sid]
+
+_PUBLIC_ENDPOINTS = {'main.root'}
+
+
+def _request_json_dict() -> dict:
+    payload = request.get_json(silent=True)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _org_exists(org_id: str | None) -> bool:
+    if not _is_uuid(org_id):
+        return False
+    try:
+        org_result = supabase_client.table('organizations').select('id').eq('id', org_id).limit(1).execute()
+    except Exception:
+        return False
+    return bool(org_result.data)
+
+
+def _resolve_org_from_file_id(file_id: str | None) -> str | None:
+    if not _is_uuid(file_id):
+        return None
+    try:
+        file_result = supabase_client.table('log_files').select('org_id').eq('id', file_id).limit(1).execute()
+    except Exception:
+        return None
+    file_row = (file_result.data or [None])[0]
+    org_id = file_row.get('org_id') if file_row else None
+    return str(org_id) if _is_uuid(org_id) else None
+
+
+def _resolve_bootstrap_org_id() -> str | None:
+    payload = _request_json_dict()
+    candidates = [
+        payload.get('org_id'),
+        request.form.get('org_id'),
+        request.args.get('org_id'),
+        (request.view_args or {}).get('org_id'),
+    ]
+
+    for candidate in candidates:
+        if _org_exists(candidate):
+            return str(candidate)
+
+    file_candidates = [
+        payload.get('file_id'),
+        request.form.get('file_id'),
+        request.args.get('file_id'),
+        (request.view_args or {}).get('file_id'),
+    ]
+
+    for file_id in file_candidates:
+        resolved = _resolve_org_from_file_id(file_id)
+        if resolved:
+            return resolved
+
+    return None
+
+
+def _dataset_to_model_label(dataset_name: str | None) -> str:
+    raw_value = str(dataset_name or '').strip().lower()
+    if not raw_value:
+        return 'cicids2019'
+
+    normalized = re.sub(r'[^a-z0-9]+', '-', raw_value).strip('-')
+    return normalized or 'cicids2019'
+
+
+def _dataset_to_model_name(dataset_name: str | None) -> str:
+    return f"rf-{_dataset_to_model_label(dataset_name)}"
+
+
+def _load_latest_rf_model(org_id: str | None = None, model_name: str | None = None) -> dict:
+    base_query = (
         supabase_client.table('model_versions')
         .select('id, org_id, version, artifact_bucket, artifact_path, status, created_at')
-        .eq('name', 'rf-cicids2019')
         .eq('status', 'active')
         .order('created_at', desc=True)
     )
     if org_id:
-        query = query.eq('org_id', org_id)
+        base_query = base_query.eq('org_id', org_id)
 
-    model_result = query.limit(1).execute()
+    model_result = None
+    if model_name:
+        model_result = base_query.eq('name', model_name).limit(1).execute()
+
+    if not model_result or not model_result.data:
+        model_result = base_query.limit(1).execute()
+
     if not model_result.data:
         raise ValueError('No active RF model version found')
 
@@ -80,6 +169,147 @@ def _set_request_id():
     request_id = request.headers.get('X-Request-ID')
     g.request_id = request_id or str(uuid4())
     g.request_started_at = perf_counter()
+
+
+@main.before_request
+def _authenticate_request():
+    endpoint = request.endpoint or ''
+    if request.method == 'OPTIONS' or endpoint in _PUBLIC_ENDPOINTS:
+        return None
+
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return _error_response('Missing Authorization bearer token', 401, 'UNAUTHORIZED')
+
+    token = auth_header.split(' ', 1)[1].strip()
+    if not token:
+        return _error_response('Missing Authorization bearer token', 401, 'UNAUTHORIZED')
+
+    try:
+        auth_result = supabase_client.auth.get_user(token)
+    except Exception:
+        return _error_response('Invalid access token', 401, 'UNAUTHORIZED')
+
+    auth_user = getattr(auth_result, 'user', None)
+    if auth_user is None and isinstance(auth_result, dict):
+        auth_user = auth_result.get('user')
+
+    user_id = None
+    if isinstance(auth_user, dict):
+        user_id = auth_user.get('id')
+    else:
+        user_id = getattr(auth_user, 'id', None)
+
+    if not _is_uuid(user_id):
+        return _error_response('Unable to resolve authenticated user', 401, 'UNAUTHORIZED')
+
+    try:
+        user_result, _user_select_expr = _select_with_fallback(
+            'users',
+            [
+                'id, org_id, role',
+                'id, org_id',
+                'id',
+            ],
+            lambda query: query.eq('id', user_id).limit(1),
+        )
+    except Exception:
+        return _error_response('Failed to resolve user context', 500, 'DATABASE_ERROR', retryable=True)
+
+    user_row = (user_result.data or [None])[0]
+    if not user_row:
+        if isinstance(auth_user, dict):
+            email = auth_user.get('email')
+            app_metadata = auth_user.get('app_metadata') or {}
+            user_metadata = auth_user.get('user_metadata') or {}
+        else:
+            email = getattr(auth_user, 'email', None)
+            app_metadata = getattr(auth_user, 'app_metadata', {}) or {}
+            user_metadata = getattr(auth_user, 'user_metadata', {}) or {}
+
+        claim_org_id = app_metadata.get('org_id') or user_metadata.get('org_id') or _resolve_bootstrap_org_id()
+        claim_role = str(app_metadata.get('role') or user_metadata.get('role') or 'viewer').strip().lower()
+        if claim_role not in {'admin', 'analyst', 'viewer'}:
+            claim_role = 'viewer'
+
+        if not _is_uuid(claim_org_id) or not _org_exists(claim_org_id):
+            return _error_response(
+                'Authenticated user is not provisioned',
+                403,
+                'FORBIDDEN',
+                details={
+                    'hint': 'Create a users row with id, org_id, email, and role, or include org_id in auth metadata.',
+                },
+            )
+
+        provisioned = False
+        upsert_payload_candidates = [
+            {
+                'id': user_id,
+                'org_id': str(claim_org_id),
+                'email': email or '',
+                'role': claim_role,
+            },
+            {
+                'id': user_id,
+                'org_id': str(claim_org_id),
+                'role': claim_role,
+            },
+            {
+                'id': user_id,
+                'org_id': str(claim_org_id),
+                'email': email or '',
+            },
+            {
+                'id': user_id,
+                'org_id': str(claim_org_id),
+            },
+        ]
+
+        for upsert_payload in upsert_payload_candidates:
+            try:
+                supabase_client.table('users').upsert(upsert_payload, on_conflict='id').execute()
+                provisioned = True
+                break
+            except Exception:
+                continue
+
+        if not provisioned:
+            return _error_response('Failed to provision authenticated user context', 500, 'DATABASE_ERROR', retryable=True)
+
+        try:
+            user_result, _user_select_expr = _select_with_fallback(
+                'users',
+                [
+                    'id, org_id, role',
+                    'id, org_id',
+                    'id',
+                ],
+                lambda query: query.eq('id', user_id).limit(1),
+            )
+            user_row = (user_result.data or [None])[0]
+        except Exception:
+            return _error_response('Failed to provision authenticated user context', 500, 'DATABASE_ERROR', retryable=True)
+
+        if not user_row:
+            return _error_response('Authenticated user is not provisioned', 403, 'FORBIDDEN')
+
+    org_id = user_row.get('org_id')
+    role = user_row.get('role') or 'viewer'
+    if not _is_uuid(org_id):
+        bootstrap_org_id = _resolve_bootstrap_org_id()
+        if not bootstrap_org_id:
+            return _error_response('Authenticated user has no org context', 403, 'FORBIDDEN')
+        try:
+            supabase_client.table('users').update({'org_id': bootstrap_org_id}).eq('id', user_id).execute()
+            org_id = bootstrap_org_id
+        except Exception:
+            return _error_response('Failed to provision authenticated user context', 500, 'DATABASE_ERROR', retryable=True)
+
+    g.auth_user_id = str(user_row['id'])
+    g.auth_org_id = str(org_id)
+    g.auth_role = str(role or 'viewer')
+    return None
 
 
 @main.after_request
@@ -127,6 +357,99 @@ def _error_response(
     if details:
         payload['error']['details'] = details
     return jsonify(payload), status
+
+
+def _auth_org_id() -> str:
+    return str(getattr(g, 'auth_org_id', '') or '')
+
+
+def _auth_user_id() -> str:
+    return str(getattr(g, 'auth_user_id', '') or '')
+
+
+def _auth_role() -> str:
+    return str(getattr(g, 'auth_role', 'viewer') or 'viewer').strip().lower()
+
+
+def _require_roles(*allowed_roles: str):
+    normalized_allowed = {str(role).strip().lower() for role in allowed_roles if role}
+    current_role = _auth_role()
+    if current_role not in normalized_allowed:
+        return _error_response(
+            'Insufficient role permissions for this endpoint',
+            403,
+            'FORBIDDEN',
+            details={
+                'required_roles': sorted(normalized_allowed),
+                'current_role': current_role,
+            },
+        )
+    return None
+
+
+def _enforce_org_scope(requested_org_id: str | None) -> tuple[str | None, tuple | None]:
+    auth_org_id = _auth_org_id()
+    if not auth_org_id:
+        return None, _error_response('Missing authenticated organization context', 403, 'FORBIDDEN')
+
+    if requested_org_id and str(requested_org_id) != auth_org_id:
+        return None, _error_response('Cross-organization access denied', 403, 'FORBIDDEN')
+
+    return auth_org_id, None
+
+
+def _file_org_id(file_id: str) -> str | None:
+    file_result = supabase_client.table('log_files').select('org_id').eq('id', file_id).limit(1).execute()
+    file_row = (file_result.data or [None])[0]
+    if not file_row:
+        return None
+    org_id = file_row.get('org_id')
+    return str(org_id) if _is_uuid(org_id) else None
+
+
+def _enforce_file_scope(file_id: str) -> tuple[str | None, tuple | None]:
+    org_id = _file_org_id(file_id)
+    if not org_id:
+        return None, _error_response('File not found', 404, 'NOT_FOUND')
+    _, scope_error = _enforce_org_scope(org_id)
+    if scope_error:
+        return None, scope_error
+    return org_id, None
+
+
+def _incident_org_id(incident_id: str) -> str | None:
+    if not _is_uuid(incident_id):
+        return None
+    result = supabase_client.table('incidents').select('org_id').eq('id', incident_id).limit(1).execute()
+    row = (result.data or [None])[0]
+    org_id = row.get('org_id') if row else None
+    return str(org_id) if _is_uuid(org_id) else None
+
+
+def _task_org_id(task_id: str) -> str | None:
+    if not _is_uuid(task_id):
+        return None
+    result = supabase_client.table('tasks').select('org_id').eq('id', task_id).limit(1).execute()
+    row = (result.data or [None])[0]
+    org_id = row.get('org_id') if row else None
+    return str(org_id) if _is_uuid(org_id) else None
+
+
+def _select_with_fallback(table_name: str, select_candidates: list[str], query_builder):
+    last_error = None
+    for select_expr in select_candidates:
+        try:
+            query = supabase_client.table(table_name).select(select_expr)
+            query = query_builder(query)
+            return query.execute(), select_expr
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if last_error is not None:
+        raise last_error
+
+    return None, None
 
 
 def _is_uuid(value: str | None) -> bool:
@@ -676,7 +999,27 @@ def _run_background_analysis_job(
         _update_analysis_job_item(item_id, {'file_id': file_id, 'progress_pct': 40})
         _update_analysis_job(job_id, {'progress_pct': 40})
 
-        _insert_raw_logs_in_batches(entries, org_id, file_id)
+        rows = [
+            {
+                'org_id': org_id,
+                'payload': entry,
+                'file_id': file_id,
+            }
+            for entry in entries
+        ]
+        total_batches = max(1, (len(rows) + RAW_LOG_INSERT_BATCH_SIZE - 1) // RAW_LOG_INSERT_BATCH_SIZE)
+        for batch_index, start in enumerate(range(0, len(rows), RAW_LOG_INSERT_BATCH_SIZE), start=1):
+            batch = rows[start:start + RAW_LOG_INSERT_BATCH_SIZE]
+            _execute_with_retry(
+                lambda payload=batch: supabase_client.table('raw_logs').insert(payload).execute()
+            )
+
+            # Keep UI responsive for large datasets by reporting intermediate insert progress.
+            if batch_index == total_batches or batch_index % 10 == 0:
+                insert_progress = 40 + round((batch_index / total_batches) * 15)
+                _update_analysis_job_item(item_id, {'progress_pct': insert_progress})
+                _update_analysis_job(job_id, {'progress_pct': insert_progress})
+
         _update_analysis_job_item(item_id, {'progress_pct': 55})
         _update_analysis_job(job_id, {'progress_pct': 55})
 
@@ -793,6 +1136,9 @@ def root():
 @main.route('/ingest', methods=['POST'])
 def ingest():
     log = _request_logger(route='ingest')
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
     data = request.get_json()
     if not data:
         return _error_response('JSON body required', 400, 'VALIDATION_ERROR')
@@ -800,13 +1146,16 @@ def ingest():
     source = data.get('source')
     raw_data = data.get('raw_data')
     timestamp = data.get('timestamp', datetime.now(timezone.utc).isoformat())
+    org_id, org_scope_error = _enforce_org_scope(data.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
 
     if not source or raw_data is None:
         return _error_response('source and raw_data are required', 400, 'VALIDATION_ERROR')
 
     try:
         raw_result = supabase_client.table('raw_logs').insert({
-            'org_id': data.get('org_id'),
+            'org_id': org_id,
             'source_id': data.get('source_id'),
             'payload': raw_data,
             'received_at': timestamp
@@ -823,7 +1172,7 @@ def ingest():
     normalized = normalize_log(source, raw_data)
     try:
         norm_result = supabase_client.table('normalized_events').insert({
-            'org_id': data.get('org_id'),
+            'org_id': org_id,
             'raw_log_id': raw_log_id,
             'source_id': data.get('source_id'),
             'event_type': normalized.get('action'),
@@ -846,20 +1195,22 @@ def ingest():
 @main.route('/upload', methods=['POST'])
 def upload_log_file():
     log = _request_logger(route='upload_log_file')
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
 
     if 'file' not in request.files:
         return _error_response('No file provided', 400, 'VALIDATION_ERROR')
 
     file = request.files['file']
     source_type = request.form.get('source_type')
-    org_id = request.form.get('org_id')
+    org_id, org_scope_error = _enforce_org_scope(request.form.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
     log = log.bind(org_id=org_id, filename=file.filename)
 
     if not source_type or source_type not in {'windows', 'firewall', 'auth', 'syslog', 'custom'}:
         return _error_response('source_type must be one of: windows, firewall, auth, syslog, custom', 400, 'VALIDATION_ERROR')
-
-    if not org_id:
-        return _error_response('org_id is required', 400, 'VALIDATION_ERROR')
 
     file_bytes = file.read()
 
@@ -981,13 +1332,21 @@ def upload_log_file_stream():
         log = _request_logger(route='upload_log_file_stream')
         file_id = None
 
+        role_error = _require_roles('admin', 'analyst')
+        if role_error:
+            yield _to_sse('error', _progress_event('forbidden', 'Insufficient role permissions for this endpoint', 0, error_code='FORBIDDEN'))
+            return
+
         if 'file' not in request.files:
             yield _to_sse('error', _progress_event('validation_failed', 'No file provided', 0, error_code='VALIDATION_ERROR'))
             return
 
         file = request.files['file']
         source_type = request.form.get('source_type')
-        org_id = request.form.get('org_id')
+        org_id, org_scope_error = _enforce_org_scope(request.form.get('org_id'))
+        if org_scope_error:
+            yield _to_sse('error', _progress_event('forbidden', 'Cross-organization access denied', 0, error_code='FORBIDDEN'))
+            return
         log = log.bind(org_id=org_id, filename=file.filename)
 
         if not source_type or source_type not in {'windows', 'firewall', 'auth', 'syslog', 'custom'}:
@@ -1000,10 +1359,6 @@ def upload_log_file_stream():
                     error_code='VALIDATION_ERROR',
                 ),
             )
-            return
-
-        if not org_id:
-            yield _to_sse('error', _progress_event('validation_failed', 'org_id is required', 0, error_code='VALIDATION_ERROR'))
             return
 
         file_bytes = file.read()
@@ -1159,15 +1514,20 @@ def upload_log_file_stream():
 def create_background_analysis_job():
     """Create an asynchronous analysis job for a file that already exists in storage."""
     log = _request_logger(route='create_background_analysis_job')
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
     payload = request.get_json(silent=True) or {}
 
-    org_id = payload.get('org_id')
+    org_id, org_scope_error = _enforce_org_scope(payload.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
     filename = payload.get('filename')
     source_type = payload.get('source_type')
-    requested_by = payload.get('requested_by')
+    requested_by = _auth_user_id() or payload.get('requested_by')
 
-    if not org_id or not filename or not source_type:
-        return _error_response('org_id, filename, and source_type are required', 400, 'VALIDATION_ERROR')
+    if not filename or not source_type:
+        return _error_response('filename and source_type are required', 400, 'VALIDATION_ERROR')
 
     if source_type not in {'windows', 'firewall', 'auth', 'syslog', 'custom'}:
         return _error_response('source_type must be one of: windows, firewall, auth, syslog, custom', 400, 'VALIDATION_ERROR')
@@ -1180,7 +1540,8 @@ def create_background_analysis_job():
             requested_by=requested_by,
         )
     except ValueError as exc:
-        return _error_response(str(exc), 400, 'VALIDATION_ERROR')
+        log.exception('Validation error creating background analysis job')
+        return _error_response('Invalid request parameters', 400, 'VALIDATION_ERROR')
     except Exception:
         log.exception('Failed to create background analysis job')
         return _error_response('Failed to create analysis job', 500, 'DATABASE_ERROR', retryable=True)
@@ -1193,18 +1554,50 @@ def create_background_analysis_job():
     }), 202
 
 
+def _serialize_timestamps(obj):
+    """Convert datetime objects to ISO format strings and numeric types to float for JSON serialization."""
+    from decimal import Decimal
+    
+    if isinstance(obj, dict):
+        return {k: _serialize_timestamps(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_serialize_timestamps(item) for item in obj]
+    elif isinstance(obj, Decimal):
+        # Convert Decimal to float to preserve numeric precision
+        return float(obj)
+    elif obj is not None and hasattr(obj, 'isoformat') and callable(obj.isoformat):
+        # Only convert if it's actually a datetime-like object (has working isoformat method)
+        try:
+            return obj.isoformat()
+        except (TypeError, AttributeError):
+            return obj
+    else:
+        return obj
+
+
 @main.route('/analysis-jobs/<job_id>', methods=['GET'])
 def get_background_analysis_job(job_id):
     """Poll background job status and retrieve output when available."""
     log = _request_logger(route='get_background_analysis_job', job_id=job_id)
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
 
     if not _is_uuid(job_id):
         return _error_response('job_id must be a UUID', 400, 'VALIDATION_ERROR')
 
     try:
-        job_result = supabase_client.table('analysis_jobs').select(
-            'id, org_id, requested_by, status, source_type, total_files, processed_files, failed_files, progress_pct, created_at, started_at, completed_at, error_message, output_path'
-        ).eq('id', job_id).limit(1).execute()
+        job_result, _job_select_expr = _select_with_fallback(
+            'analysis_jobs',
+            [
+                'id, org_id, requested_by, status, source_type, total_files, processed_files, failed_files, progress_pct, created_at, started_at, completed_at, error_message, output_path',
+                'id, org_id, status, source_type, total_files, processed_files, failed_files, progress_pct, created_at, started_at, completed_at, error_message, output_path',
+                'id, org_id, status, source_type, total_files, processed_files, failed_files, progress_pct, created_at, started_at, completed_at, error_message',
+                'id, org_id, status, source_type, total_files, processed_files, failed_files, progress_pct',
+                'id, org_id, status',
+            ],
+            lambda query: query.eq('id', job_id).limit(1),
+        )
     except Exception:
         log.exception('Failed to fetch analysis job')
         return _error_response('Failed to fetch analysis job', 500, 'DATABASE_ERROR', retryable=True)
@@ -1213,11 +1606,32 @@ def get_background_analysis_job(job_id):
         return _error_response('Analysis job not found', 404, 'NOT_FOUND')
 
     job = job_result.data[0]
+    job.setdefault('requested_by', None)
+    job.setdefault('source_type', None)
+    job.setdefault('total_files', 0)
+    job.setdefault('processed_files', 0)
+    job.setdefault('failed_files', 0)
+    job.setdefault('progress_pct', 0)
+    job.setdefault('created_at', None)
+    job.setdefault('started_at', None)
+    job.setdefault('completed_at', None)
+    job.setdefault('error_message', None)
+    job.setdefault('output_path', None)
+    _, org_scope_error = _enforce_org_scope(job.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
     items = []
     try:
-        items_result = supabase_client.table('analysis_job_items').select(
-            'id, job_id, file_name, file_id, status, entry_count, result_id, progress_pct, created_at, started_at, completed_at, error_message'
-        ).eq('job_id', job_id).execute()
+        items_result, _items_select_expr = _select_with_fallback(
+            'analysis_job_items',
+            [
+                'id, job_id, file_name, file_id, status, entry_count, result_id, progress_pct, created_at, started_at, completed_at, error_message',
+                'id, job_id, file_name, file_id, status, entry_count, result_id, progress_pct, created_at, started_at, completed_at',
+                'id, job_id, file_name, file_id, status, entry_count, result_id, progress_pct',
+                'id, job_id, file_name, status',
+            ],
+            lambda query: query.eq('job_id', job_id),
+        )
         items = items_result.data or []
     except Exception:
         log.exception('Failed to fetch analysis job items')
@@ -1233,23 +1647,28 @@ def get_background_analysis_job(job_id):
             log.exception('Failed to fetch analysis result for completed job item')
 
     return jsonify({
-        'job': job,
-        'items': items,
-        'result': result_payload,
+        'job': _serialize_timestamps(job),
+        'items': _serialize_timestamps(items),
+        'result': _serialize_timestamps(result_payload),
         'request_id': _get_request_id(),
     }), 200
 
 
 @main.route('/upload-sessions/init', methods=['POST'])
 def init_upload_session():
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
     payload = request.get_json(silent=True) or {}
-    org_id = payload.get('org_id')
+    org_id, org_scope_error = _enforce_org_scope(payload.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
     filename = payload.get('filename')
     source_type = payload.get('source_type')
     total_parts = payload.get('total_parts')
 
-    if not org_id or not filename or not source_type:
-        return _error_response('org_id, filename, and source_type are required', 400, 'VALIDATION_ERROR')
+    if not filename or not source_type:
+        return _error_response('filename and source_type are required', 400, 'VALIDATION_ERROR')
 
     if source_type not in {'windows', 'firewall', 'auth', 'syslog', 'custom'}:
         return _error_response('source_type must be one of: windows, firewall, auth, syslog, custom', 400, 'VALIDATION_ERROR')
@@ -1273,6 +1692,7 @@ def init_upload_session():
         'source_type': source_type,
         'status': 'initiated',
         'created_at': datetime.now(timezone.utc).isoformat(),
+        'created_at_ts': time.time(),
         'total_parts': total_parts,
         'parts': {},
         'part_sizes': {},
@@ -1283,6 +1703,14 @@ def init_upload_session():
     }
 
     with _upload_sessions_lock:
+        _evict_expired_sessions()
+        if len(_upload_sessions) >= MAX_UPLOAD_SESSIONS:
+            return _error_response(
+                'Too many active upload sessions. Please try again later.',
+                429,
+                'RATE_LIMIT',
+                retryable=True,
+            )
         _upload_sessions[session_id] = session
 
     try:
@@ -1296,7 +1724,7 @@ def init_upload_session():
             'STORAGE_ERROR'
             ,
             retryable=True,
-            details={'storage_error': str(exc), 'session_prefix': session_prefix},
+            details={'storage_error': 'Internal storage error', 'session_prefix': session_prefix},
         )
 
     return jsonify({
@@ -1309,8 +1737,12 @@ def init_upload_session():
 
 @main.route('/upload-sessions/upload-part', methods=['POST'])
 def upload_session_part():
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
     session_id = request.form.get('session_id')
     part_number_raw = request.form.get('part_number')
+    log = _request_logger(route='upload_session_part', session_id=session_id)
 
     if not session_id or not part_number_raw:
         return _error_response('session_id and part_number are required', 400, 'VALIDATION_ERROR')
@@ -1338,9 +1770,13 @@ def upload_session_part():
         )
 
     with _upload_sessions_lock:
+        _evict_expired_sessions()
         session = _upload_sessions.get(session_id)
         if not session:
-            return _error_response('Upload session not found', 404, 'NOT_FOUND')
+            return _error_response('Upload session expired or not found', 410, 'GONE')
+        _, org_scope_error = _enforce_org_scope(session.get('org_id'))
+        if org_scope_error:
+            return org_scope_error
         if session.get('status') == 'completed':
             return _error_response('Upload session already completed', 409, 'CONFLICT')
 
@@ -1359,7 +1795,7 @@ def upload_session_part():
                 500,
                 'STORAGE_ERROR',
                 retryable=True,
-                details={'storage_error': str(exc), 'part_path': part_path, 'part_number': part_number},
+                details={'storage_error': 'Internal storage error', 'part_path': part_path, 'part_number': part_number},
             )
 
         session['parts'][part_number] = part_path
@@ -1376,7 +1812,7 @@ def upload_session_part():
                 500,
                 'STORAGE_ERROR',
                 retryable=True,
-                details={'storage_error': str(exc), 'session_id': session_id},
+                details={'storage_error': 'Internal storage error', 'session_id': session_id},
             )
 
         total_parts = session.get('total_parts')
@@ -1397,18 +1833,25 @@ def upload_session_part():
 
 @main.route('/upload-sessions/complete', methods=['POST'])
 def complete_upload_session():
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
     payload = request.get_json(silent=True) or {}
     session_id = payload.get('session_id')
-    requested_by = payload.get('requested_by')
+    requested_by = _auth_user_id() or payload.get('requested_by')
     log = _request_logger(route='complete_upload_session', session_id=session_id)
 
     if not session_id:
         return _error_response('session_id is required', 400, 'VALIDATION_ERROR')
 
     with _upload_sessions_lock:
+        _evict_expired_sessions()
         session = _upload_sessions.get(session_id)
         if not session:
-            return _error_response('Upload session not found', 404, 'NOT_FOUND')
+            return _error_response('Upload session expired or not found', 410, 'GONE')
+        _, org_scope_error = _enforce_org_scope(session.get('org_id'))
+        if org_scope_error:
+            return org_scope_error
         if session.get('status') == 'completed':
             return jsonify({
                 'session_id': session_id,
@@ -1461,7 +1904,8 @@ def complete_upload_session():
             output_path=manifest_path,
         )
     except ValueError as exc:
-        return _error_response(str(exc), 400, 'VALIDATION_ERROR')
+        log.exception('Validation error creating analysis job after assembly')
+        return _error_response('Invalid request parameters', 400, 'VALIDATION_ERROR')
     except Exception:
         return _error_response('File assembled, but failed to create analysis job', 500, 'DATABASE_ERROR', retryable=True)
 
@@ -1488,11 +1932,14 @@ def complete_upload_session():
 @main.route('/rf/train', methods=['POST'])
 def train_rf_model():
     log = _request_logger(route='train_rf_model')
+    role_error = _require_roles('admin')
+    if role_error:
+        return role_error
     payload = request.get_json(silent=True) or {}
 
-    org_id = payload.get('org_id')
-    if not org_id:
-        return _error_response('org_id is required', 400, 'VALIDATION_ERROR')
+    org_id, org_scope_error = _enforce_org_scope(payload.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
 
     dataset_path = payload.get('dataset_path')
     if not dataset_path:
@@ -1502,8 +1949,10 @@ def train_rf_model():
     min_samples_per_class = int(payload.get('min_samples_per_class', 5))
     max_rows = payload.get('max_rows')
     max_rows = int(max_rows) if max_rows is not None else 120000
-    requested_by = payload.get('requested_by')
+    requested_by = _auth_user_id() or payload.get('requested_by')
     dataset_name = payload.get('dataset_name', 'CICIDS2019')
+    model_label = _dataset_to_model_label(dataset_name)
+    model_name = _dataset_to_model_name(dataset_name)
     activation_threshold = float(payload.get('activation_threshold', os.getenv('RF_VALIDATION_PRECISION_THRESHOLD', '0.80')))
 
     training_run_id = None
@@ -1527,7 +1976,7 @@ def train_rf_model():
             500,
             'DATABASE_ERROR',
             retryable=True,
-            details={'database_error': str(exc)},
+            details={'database_error': 'Database operation failed'},
         )
 
     try:
@@ -1557,7 +2006,7 @@ def train_rf_model():
         )
 
         version = datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S') + '-' + uuid4().hex[:8]
-        local_model_path = Path(__file__).parent / '.models' / f'rf_cicids2019_{version}.pkl'
+        local_model_path = Path(__file__).parent / '.models' / f'rf_{model_label}_{version}.pkl'
         local_model_path.parent.mkdir(parents=True, exist_ok=True)
 
         save_result = classifier.save_model(str(local_model_path))
@@ -1569,7 +2018,7 @@ def train_rf_model():
         if stable_save_result.get('error'):
             raise ValueError(stable_save_result['error'])
 
-        artifact_path = f"{org_id}/rf_models/rf_cicids2019_{version}.pkl"
+        artifact_path = f"{org_id}/rf_models/rf_{model_label}_{version}.pkl"
         with open(local_model_path, 'rb') as artifact:
             upload_binary(artifact_path, artifact.read())
 
@@ -1591,7 +2040,7 @@ def train_rf_model():
 
         model_version_record = supabase_client.table('model_versions').insert({
             'org_id': org_id,
-            'name': 'rf-cicids2019',
+            'name': model_name,
             'version': version,
             'status': model_status,
             'artifact_bucket': 'ml-models',
@@ -1631,6 +2080,7 @@ def train_rf_model():
             'status': 'completed',
             'training_run_id': training_run_id,
             'model_version_id': model_version_id,
+            'model_name': model_name,
             'model_version': version,
             'artifact_path': artifact_path,
             'model_status': model_status,
@@ -1653,17 +2103,28 @@ def train_rf_model():
             'completed_at': datetime.now(timezone.utc).isoformat(),
         })
         log.exception('RF training failed')
-        return _error_response(str(exc), 500, 'TRAINING_ERROR', retryable=False)
+        return _error_response('Model training failed', 500, 'TRAINING_ERROR', retryable=False)
 
 
 @main.route('/rf/load-latest', methods=['POST'])
 def load_latest_rf_model():
+    role_error = _require_roles('admin')
+    if role_error:
+        return role_error
     payload = request.get_json(silent=True) or {}
-    org_id = payload.get('org_id')
+    org_id, org_scope_error = _enforce_org_scope(payload.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
     log = _request_logger(route='load_latest_rf_model', org_id=org_id)
 
+    model_name = payload.get('model_name')
+    if not model_name:
+        dataset_name = payload.get('dataset_name')
+        if dataset_name:
+            model_name = _dataset_to_model_name(dataset_name)
+
     try:
-        details = _load_latest_rf_model(org_id=org_id)
+        details = _load_latest_rf_model(org_id=org_id, model_name=model_name)
         return jsonify({
             'status': 'loaded',
             'details': details,
@@ -1671,15 +2132,22 @@ def load_latest_rf_model():
         }), 200
     except Exception as exc:
         log.exception('Failed to load latest RF model')
-        return _error_response(str(exc), 500, 'MODEL_LOAD_ERROR', retryable=True)
+        return _error_response('Failed to load model', 500, 'MODEL_LOAD_ERROR', retryable=True)
 
 @main.route('/analysis/<file_id>', methods=['GET'])
 def get_analysis(file_id):
     log = _request_logger(route='get_analysis', file_id=file_id)
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
     include_mitre_links = request.args.get('include_mitre_links', 'true').strip().lower() != 'false'
 
     if not _is_uuid(file_id):
         return _error_response('file_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    _, file_scope_error = _enforce_file_scope(file_id)
+    if file_scope_error:
+        return file_scope_error
 
     try:
         result = supabase_client.table('analysis_results').select('*').eq('file_id', file_id).order(
@@ -1709,9 +2177,16 @@ def get_analysis(file_id):
 @main.route('/timeline/file/<file_id>', methods=['GET'])
 def get_file_timeline_route(file_id):
     log = _request_logger(route='get_file_timeline', file_id=file_id)
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
 
     if not _is_uuid(file_id):
         return _error_response('file_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    _, file_scope_error = _enforce_file_scope(file_id)
+    if file_scope_error:
+        return file_scope_error
 
     start = request.args.get('start')
     end = request.args.get('end')
@@ -1748,9 +2223,16 @@ def get_file_timeline_route(file_id):
 @main.route('/timeline/org/<org_id>', methods=['GET'])
 def get_org_timeline_route(org_id):
     log = _request_logger(route='get_org_timeline', org_id=org_id)
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
 
     if not _is_uuid(org_id):
         return _error_response('org_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    _, org_scope_error = _enforce_org_scope(org_id)
+    if org_scope_error:
+        return org_scope_error
 
     start = request.args.get('start')
     end = request.args.get('end')
@@ -1783,16 +2265,427 @@ def get_org_timeline_route(org_id):
     timeline['request_id'] = _get_request_id()
     return jsonify(timeline), 200
 
+
+@main.route('/timeline/file/<file_id>/graph', methods=['GET'])
+def get_file_timeline_graph_route(file_id):
+    log = _request_logger(route='get_file_timeline_graph', file_id=file_id)
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
+
+    if not _is_uuid(file_id):
+        return _error_response('file_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    _, file_scope_error = _enforce_file_scope(file_id)
+    if file_scope_error:
+        return file_scope_error
+
+    start = request.args.get('start')
+    end = request.args.get('end')
+    severity = request.args.get('severity')
+    event_type = request.args.get('event_type')
+    max_nodes_raw = request.args.get('max_nodes', '120')
+
+    try:
+        max_nodes = int(max_nodes_raw)
+    except (TypeError, ValueError):
+        return _error_response('max_nodes must be an integer', 400, 'VALIDATION_ERROR')
+
+    if max_nodes <= 0:
+        return _error_response('max_nodes must be greater than 0', 400, 'VALIDATION_ERROR')
+
+    try:
+        graph_payload = get_file_timeline_graph(
+            file_id=file_id,
+            start=start,
+            end=end,
+            severity=severity,
+            event_type=event_type,
+            max_nodes=min(max_nodes, 300),
+        )
+    except Exception:
+        log.exception('Failed to fetch file timeline graph')
+        return _error_response('Failed to fetch file timeline graph', 500, 'DATABASE_ERROR', retryable=True)
+
+    graph_payload['request_id'] = _get_request_id()
+    return jsonify(graph_payload), 200
+
+
+@main.route('/timeline/org/<org_id>/graph', methods=['GET'])
+def get_org_timeline_graph_route(org_id):
+    log = _request_logger(route='get_org_timeline_graph', org_id=org_id)
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
+
+    if not _is_uuid(org_id):
+        return _error_response('org_id must be a UUID', 400, 'VALIDATION_ERROR')
+
+    _, org_scope_error = _enforce_org_scope(org_id)
+    if org_scope_error:
+        return org_scope_error
+
+    start = request.args.get('start')
+    end = request.args.get('end')
+    severity = request.args.get('severity')
+    event_type = request.args.get('event_type')
+    max_nodes_raw = request.args.get('max_nodes', '160')
+
+    try:
+        max_nodes = int(max_nodes_raw)
+    except (TypeError, ValueError):
+        return _error_response('max_nodes must be an integer', 400, 'VALIDATION_ERROR')
+
+    if max_nodes <= 0:
+        return _error_response('max_nodes must be greater than 0', 400, 'VALIDATION_ERROR')
+
+    try:
+        graph_payload = get_org_timeline_graph(
+            org_id=org_id,
+            start=start,
+            end=end,
+            severity=severity,
+            event_type=event_type,
+            max_nodes=min(max_nodes, 400),
+        )
+    except Exception:
+        log.exception('Failed to fetch org timeline graph')
+        return _error_response('Failed to fetch org timeline graph', 500, 'DATABASE_ERROR', retryable=True)
+
+    graph_payload['request_id'] = _get_request_id()
+    return jsonify(graph_payload), 200
+
+
+@main.route('/incidents', methods=['GET'])
+def list_incidents():
+    log = _request_logger(route='list_incidents')
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
+
+    org_id, org_scope_error = _enforce_org_scope(request.args.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
+
+    status_filter = request.args.get('status')
+    limit_raw = request.args.get('limit', '50')
+    try:
+        limit = max(1, min(200, int(limit_raw)))
+    except (TypeError, ValueError):
+        return _error_response('limit must be an integer', 400, 'VALIDATION_ERROR')
+
+    try:
+        result, _select_expr = _select_with_fallback(
+            'incidents',
+            [
+                'id, org_id, title, status, severity',
+                'id, org_id, title, status',
+                'id, org_id, title',
+                'id, title',
+            ],
+            lambda query: query.eq('org_id', org_id).eq('status', status_filter) if status_filter else query.eq('org_id', org_id),
+        )
+        if result is None:
+            return jsonify({'items': [], 'request_id': _get_request_id()}), 200
+        return jsonify({'items': result.data or [], 'request_id': _get_request_id()}), 200
+    except Exception:
+        log.exception('Failed to load incidents')
+        return _error_response('Failed to load incidents', 500, 'DATABASE_ERROR', retryable=True)
+
+
+@main.route('/incidents', methods=['POST'])
+def create_incident():
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
+
+    payload = request.get_json(silent=True) or {}
+    org_id, org_scope_error = _enforce_org_scope(payload.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
+
+    title = str(payload.get('title') or '').strip()
+    status = str(payload.get('status') or 'open').strip().lower()
+    severity = str(payload.get('severity') or 'medium').strip().lower()
+
+    if not title:
+        return _error_response('title is required', 400, 'VALIDATION_ERROR')
+
+    if status not in {'open', 'in_progress', 'resolved', 'closed'}:
+        return _error_response('status must be one of: open, in_progress, resolved, closed', 400, 'VALIDATION_ERROR')
+
+    if severity not in {'low', 'medium', 'high', 'critical'}:
+        return _error_response('severity must be one of: low, medium, high, critical', 400, 'VALIDATION_ERROR')
+
+    result = supabase_client.table('incidents').insert({
+        'org_id': org_id,
+        'title': title,
+        'status': status,
+        'severity': severity,
+    }).execute()
+
+    return jsonify({'incident': (result.data or [None])[0], 'request_id': _get_request_id()}), 201
+
+
+@main.route('/incidents/<incident_id>', methods=['PATCH'])
+def update_incident(incident_id):
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
+
+    org_id = _incident_org_id(incident_id)
+    if not org_id:
+        return _error_response('Incident not found', 404, 'NOT_FOUND')
+
+    _, org_scope_error = _enforce_org_scope(org_id)
+    if org_scope_error:
+        return org_scope_error
+
+    payload = request.get_json(silent=True) or {}
+    updates = {}
+
+    if 'title' in payload:
+        title = str(payload.get('title') or '').strip()
+        if not title:
+            return _error_response('title cannot be empty', 400, 'VALIDATION_ERROR')
+        updates['title'] = title
+
+    if 'status' in payload:
+        status = str(payload.get('status') or '').strip().lower()
+        if status not in {'open', 'in_progress', 'resolved', 'closed'}:
+            return _error_response('status must be one of: open, in_progress, resolved, closed', 400, 'VALIDATION_ERROR')
+        updates['status'] = status
+
+    if 'severity' in payload:
+        severity = str(payload.get('severity') or '').strip().lower()
+        if severity not in {'low', 'medium', 'high', 'critical'}:
+            return _error_response('severity must be one of: low, medium, high, critical', 400, 'VALIDATION_ERROR')
+        updates['severity'] = severity
+
+    if not updates:
+        return _error_response('No valid fields supplied to update', 400, 'VALIDATION_ERROR')
+
+    result = supabase_client.table('incidents').update(updates).eq('id', incident_id).execute()
+    return jsonify({'incident': (result.data or [None])[0], 'request_id': _get_request_id()}), 200
+
+
+@main.route('/tasks', methods=['GET'])
+def list_tasks():
+    log = _request_logger(route='list_tasks')
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
+
+    org_id, org_scope_error = _enforce_org_scope(request.args.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
+
+    incident_id = request.args.get('incident_id')
+    status_filter = request.args.get('status')
+    limit_raw = request.args.get('limit', '50')
+    try:
+        limit = max(1, min(200, int(limit_raw)))
+    except (TypeError, ValueError):
+        return _error_response('limit must be an integer', 400, 'VALIDATION_ERROR')
+
+    try:
+        result, _select_expr = _select_with_fallback(
+            'tasks',
+            [
+                'id, org_id, incident_id, assignee_id, title, status',
+                'id, org_id, incident_id, title, status',
+                'id, org_id, incident_id, title',
+                'id, org_id, title',
+            ],
+            lambda query: (
+                query.eq('org_id', org_id)
+                .eq('incident_id', incident_id) if incident_id else query.eq('org_id', org_id)
+            ).eq('status', status_filter) if status_filter else (
+                query.eq('org_id', org_id).eq('incident_id', incident_id) if incident_id else query.eq('org_id', org_id)
+            ),
+        )
+        if result is None:
+            return jsonify({'items': [], 'request_id': _get_request_id()}), 200
+        return jsonify({'items': result.data or [], 'request_id': _get_request_id()}), 200
+    except Exception:
+        log.exception('Failed to load tasks')
+        return _error_response('Failed to load tasks', 500, 'DATABASE_ERROR', retryable=True)
+
+
+@main.route('/tasks', methods=['POST'])
+def create_task():
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
+
+    payload = request.get_json(silent=True) or {}
+    org_id, org_scope_error = _enforce_org_scope(payload.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
+
+    title = str(payload.get('title') or '').strip()
+    incident_id = payload.get('incident_id')
+    assignee_id = payload.get('assignee_id')
+    status = str(payload.get('status') or 'pending').strip().lower()
+
+    if not title:
+        return _error_response('title is required', 400, 'VALIDATION_ERROR')
+    if not _is_uuid(incident_id):
+        return _error_response('incident_id must be a UUID', 400, 'VALIDATION_ERROR')
+    if assignee_id and not _is_uuid(assignee_id):
+        return _error_response('assignee_id must be a UUID when provided', 400, 'VALIDATION_ERROR')
+    if status not in {'pending', 'in_progress', 'done'}:
+        return _error_response('status must be one of: pending, in_progress, done', 400, 'VALIDATION_ERROR')
+
+    incident_org_id = _incident_org_id(incident_id)
+    if not incident_org_id:
+        return _error_response('Incident not found', 404, 'NOT_FOUND')
+    if incident_org_id != org_id:
+        return _error_response('Cross-organization access denied', 403, 'FORBIDDEN')
+
+    result = supabase_client.table('tasks').insert({
+        'org_id': org_id,
+        'incident_id': incident_id,
+        'assignee_id': assignee_id,
+        'title': title,
+        'status': status,
+    }).execute()
+
+    return jsonify({'task': (result.data or [None])[0], 'request_id': _get_request_id()}), 201
+
+
+@main.route('/tasks/<task_id>', methods=['PATCH'])
+def update_task(task_id):
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
+
+    org_id = _task_org_id(task_id)
+    if not org_id:
+        return _error_response('Task not found', 404, 'NOT_FOUND')
+
+    _, org_scope_error = _enforce_org_scope(org_id)
+    if org_scope_error:
+        return org_scope_error
+
+    payload = request.get_json(silent=True) or {}
+    updates = {}
+
+    if 'title' in payload:
+        title = str(payload.get('title') or '').strip()
+        if not title:
+            return _error_response('title cannot be empty', 400, 'VALIDATION_ERROR')
+        updates['title'] = title
+
+    if 'status' in payload:
+        status = str(payload.get('status') or '').strip().lower()
+        if status not in {'pending', 'in_progress', 'done'}:
+            return _error_response('status must be one of: pending, in_progress, done', 400, 'VALIDATION_ERROR')
+        updates['status'] = status
+
+    if 'assignee_id' in payload:
+        assignee_id = payload.get('assignee_id')
+        if assignee_id and not _is_uuid(assignee_id):
+            return _error_response('assignee_id must be a UUID when provided', 400, 'VALIDATION_ERROR')
+        updates['assignee_id'] = assignee_id
+
+    if not updates:
+        return _error_response('No valid fields supplied to update', 400, 'VALIDATION_ERROR')
+
+    result = supabase_client.table('tasks').update(updates).eq('id', task_id).execute()
+    return jsonify({'task': (result.data or [None])[0], 'request_id': _get_request_id()}), 200
+
+
+@main.route('/feedback', methods=['GET'])
+def list_feedback():
+    log = _request_logger(route='list_feedback')
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
+
+    org_id, org_scope_error = _enforce_org_scope(request.args.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
+
+    try:
+        result, _select_expr = _select_with_fallback(
+            'feedback',
+            [
+                'id, org_id, summary_id, user_id, rating, suggestion_text, created_at',
+                'id, org_id, summary_id, user_id, rating, created_at',
+                'id, org_id, summary_id, user_id, rating',
+                'id, org_id, rating',
+            ],
+            lambda query: query.eq('org_id', org_id).limit(100),
+        )
+        if result is None:
+            return jsonify({'items': [], 'request_id': _get_request_id()}), 200
+        return jsonify({'items': result.data or [], 'request_id': _get_request_id()}), 200
+    except Exception:
+        log.exception('Failed to load feedback')
+        return _error_response('Failed to load feedback', 500, 'DATABASE_ERROR', retryable=True)
+
+
+@main.route('/feedback', methods=['POST'])
+def create_feedback():
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
+
+    payload = request.get_json(silent=True) or {}
+    org_id, org_scope_error = _enforce_org_scope(payload.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
+
+    summary_id = payload.get('summary_id')
+    rating = payload.get('rating')
+    suggestion_text = str(payload.get('suggestion_text') or '').strip()
+
+    try:
+        rating = int(rating)
+    except (TypeError, ValueError):
+        return _error_response('rating must be an integer between 1 and 5', 400, 'VALIDATION_ERROR')
+
+    if rating < 1 or rating > 5:
+        return _error_response('rating must be between 1 and 5', 400, 'VALIDATION_ERROR')
+
+    if summary_id and not _is_uuid(summary_id):
+        return _error_response('summary_id must be a UUID when provided', 400, 'VALIDATION_ERROR')
+
+    payload_to_store = {
+        'org_id': org_id,
+        'summary_id': summary_id,
+        'user_id': _auth_user_id() or None,
+        'rating': rating,
+        'suggestion_text': suggestion_text or None,
+    }
+
+    try:
+        result = supabase_client.table('feedback').insert(payload_to_store).execute()
+    except Exception as exc:
+        if 'suggestion_text' not in str(exc):
+            raise
+        payload_to_store.pop('suggestion_text', None)
+        result = supabase_client.table('feedback').insert(payload_to_store).execute()
+
+    return jsonify({'feedback': (result.data or [None])[0], 'request_id': _get_request_id()}), 201
+
 @main.route('/analyze/<file_id>', methods=['POST'])
 def analyze_stored_file(file_id):
     """Re-analyze a previously uploaded file using raw_logs already in the DB."""
     log = _request_logger(route='analyze_stored_file', file_id=file_id)
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
 
     file_result = supabase_client.table('log_files').select('id, org_id, source_type').eq('id', file_id).execute()
     if not file_result.data:
         return _error_response('File not found', 404, 'NOT_FOUND')
 
     file_record = file_result.data[0]
+    _, org_scope_error = _enforce_org_scope(file_record.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
     org_id = file_record['org_id']
     source_type = file_record['source_type']
     log = log.bind(org_id=org_id, source_type=source_type)
@@ -1878,18 +2771,23 @@ def analyze_stored_file(file_id):
 def analyze_from_storage():
     """Download a file from Supabase Storage by path and run full analysis."""
     log = _request_logger(route='analyze_from_storage')
+    role_error = _require_roles('admin', 'analyst')
+    if role_error:
+        return role_error
 
     data = request.get_json()
     if not data:
         return _error_response('JSON body required', 400, 'VALIDATION_ERROR')
 
-    org_id = data.get('org_id')
+    org_id, org_scope_error = _enforce_org_scope(data.get('org_id'))
+    if org_scope_error:
+        return org_scope_error
     filename = data.get('filename')
     source_type = data.get('source_type')
     log = log.bind(org_id=org_id, filename=filename, source_type=source_type)
 
-    if not org_id or not filename or not source_type:
-        return _error_response('org_id, filename, and source_type are required', 400, 'VALIDATION_ERROR')
+    if not filename or not source_type:
+        return _error_response('filename and source_type are required', 400, 'VALIDATION_ERROR')
 
     if source_type not in {'windows', 'firewall', 'auth', 'syslog', 'custom'}:
         return _error_response('source_type must be one of: windows, firewall, auth, syslog, custom', 400, 'VALIDATION_ERROR')

@@ -31,6 +31,10 @@ data/*.csv
 backend/ingestion/assets/chunks/
 backend/ingestion/assets/chunks_test/
 backend/ingestion/assets/*.csv
+data/cicids2019/
+data/cicids2017/
+data/*.csv
+backend/ingestion/assets/*.csv
 
 # build directory and artifacts
 frontend/build/

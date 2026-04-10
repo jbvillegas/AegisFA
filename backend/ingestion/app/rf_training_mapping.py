@@ -22,6 +22,8 @@ _KNOWN_ATTACK_ALIASES = {
 	"ftp_patator": "ftp_patator",
 	"ssh_patator": "ssh_patator",
 	"portscan": "portscan",
+	"syn": "syn",
+	"udp_lag": "udp_lag",
 }
 
 
@@ -79,6 +81,8 @@ _CLASS_SEVERITY_MAPPING = {
 	"ftp_patator": "high",
 	"ssh_patator": "high",
 	"portscan": "medium",
+	"syn": "high",
+	"udp_lag": "high",
 }
 
 _CLASS_TO_MITRE = {
@@ -257,6 +261,22 @@ _CLASS_TO_MITRE = {
 		],
 		"summary": "Network port scanning reconnaissance.",
 		"severity": "medium",
+	},
+	"syn": {
+		"techniques": [
+			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+		],
+		"summary": "SYN flood denial of service attack.",
+		"severity": "high",
+	},
+	"udp_lag": {
+		"techniques": [
+			{"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
+			{"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
+		],
+		"summary": "UDP-based denial of service causing network lag.",
+		"severity": "high",
 	},
 }
 
