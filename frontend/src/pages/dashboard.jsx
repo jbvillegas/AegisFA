@@ -366,7 +366,7 @@ function DashboardPage() {
       refreshSummaryCards();
       refreshRecentJobs();
     }
-  }, [orgId]);
+  }, [orgId, setOrgId]);
 
   const refreshSummaryCards = async () => {
     if (!orgId.trim()) {
