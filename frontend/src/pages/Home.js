@@ -127,7 +127,7 @@ export default function Home() {
                 {uploading ? 'Uploading...' : 'Upload & Analyze'}
               </button>
               {uploadMsg && <p style={{ fontFamily: 'var(--mono)', fontSize: '11px', color: uploadMsg.startsWith('✓') ? 'var(--accent)' : 'var(--red)' }}>{uploadMsg}</p>}
-            </div>
+            </div>s
           </div>
 
           <div className="card fade-in">
