@@ -138,7 +138,7 @@
   right: 0;
   background: rgba(9, 15, 22, 0.95);
   border: 1px solid var(--border-color);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-sm);
   min-width: 220px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   z-index: 1000;
@@ -203,12 +203,12 @@
 }
 
 .logout-item {
-  color: #ff6b6b;
+  color: var(--danger-bright);
 }
 
 .logout-item:hover {
   background: rgba(255, 107, 107, 0.1);
-  color: #ff8787;
+  color: var(--danger-bright-hover);
 }
 
 @media (max-width: 1024px) {

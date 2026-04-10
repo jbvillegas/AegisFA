@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { authenticatedFetch, supabase } from '../client.js';
-import { usePersistentState } from '../hooks/use-persistent-state.js';
+import { supabase } from '../client.js';
 import '../css/admindashboard.css';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
@@ -10,12 +9,8 @@ function getLocalOrgId(user) {
   return (
     user?.user_metadata?.org_id ||
     user?.app_metadata?.org_id ||
-    ''
+    (user?.email ? user.email.split('@')[0] : '')
   );
-}
-
-function isUuid(value) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || '').trim());
 }
 
 function normalizeAction(item) {
@@ -76,32 +71,28 @@ function extractActions(analysis) {
 }
 
 async function fetchLatestCompletedFileForOrg(orgId) {
-  const candidates = ['uploaded_at', 'created_at'];
+  const primary = await supabase
+    .from('log_files')
+    .select('id, uploaded_at')
+    .eq('org_id', orgId)
+    .eq('status', 'completed')
+    .order('uploaded_at', { ascending: false })
+    .limit(1);
 
-  for (const timestampField of candidates) {
-    const result = await supabase
-      .from('log_files')
-      .select(`id, ${timestampField}`)
-      .eq('org_id', orgId)
-      .eq('status', 'completed')
-      .order(timestampField, { ascending: false })
-      .limit(1);
+  if (!primary.error) {
+    return primary.data?.[0] || null;
+  }
 
-    if (!result.error) {
-      return result.data?.[0] || null;
-    }
-
-    const message = String(result.error.message || '').toLowerCase();
-    if (!(message.includes(timestampField) && message.includes('column'))) {
-      throw result.error;
-    }
+  if (!String(primary.error.message || '').includes('uploaded_at')) {
+    throw primary.error;
   }
 
   const fallback = await supabase
     .from('log_files')
-    .select('id')
+    .select('id, created_at')
     .eq('org_id', orgId)
     .eq('status', 'completed')
+    .order('created_at', { ascending: false })
     .limit(1);
 
   if (fallback.error) {
@@ -111,24 +102,9 @@ async function fetchLatestCompletedFileForOrg(orgId) {
   return fallback.data?.[0] || null;
 }
 
-async function fetchFileById(fileId) {
-  const response = await supabase
-    .from('log_files')
-    .select('id, org_id, uploaded_at, created_at')
-    .eq('id', fileId)
-    .limit(1);
-
-  if (response.error) {
-    throw response.error;
-  }
-
-  return response.data?.[0] || null;
-}
-
-function RemediationView() {
-  const { remediationId } = useParams();
-  const [orgId, setOrgId] = usePersistentState('aegisfa-org-id', '');
-  const [fileId, setFileId] = useState(remediationId || '');
+function CreatorView() {
+  const { creatorId } = useParams();
+  const [orgId, setOrgId] = useState('');
   const [actions, setActions] = useState([]);
   const [analysisSummary, setAnalysisSummary] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -138,7 +114,9 @@ function RemediationView() {
     let isMounted = true;
 
     const loadOrgContext = async () => {
-      if (orgId && isMounted) {
+      const localOrg = window.localStorage.getItem('aegisfa-org-id');
+      if (localOrg && isMounted) {
+        setOrgId(localOrg);
         return;
       }
 
@@ -147,10 +125,7 @@ function RemediationView() {
         return;
       }
 
-      const derivedOrgId = getLocalOrgId(data?.user || null);
-      if (isUuid(derivedOrgId)) {
-        setOrgId(derivedOrgId);
-      }
+      setOrgId(getLocalOrgId(data?.user || null));
     };
 
     loadOrgContext();
@@ -158,15 +133,11 @@ function RemediationView() {
     return () => {
       isMounted = false;
     };
-  }, [orgId, setOrgId]);
-
-  useEffect(() => {
-    setFileId(remediationId || '');
-  }, [remediationId]);
+  }, []);
 
   useEffect(() => {
     const loadRemediationPanel = async () => {
-      if (!fileId.trim() && !orgId.trim()) {
+      if (!orgId.trim()) {
         setActions([]);
         return;
       }
@@ -175,9 +146,7 @@ function RemediationView() {
       setLoadError('');
 
       try {
-        const latestFile = fileId.trim()
-          ? await fetchFileById(fileId.trim())
-          : await fetchLatestCompletedFileForOrg(orgId.trim());
+        const latestFile = await fetchLatestCompletedFileForOrg(orgId.trim());
         const latestFileId = latestFile?.id;
         if (!latestFileId) {
           setActions([]);
@@ -185,7 +154,7 @@ function RemediationView() {
           return;
         }
 
-        const analysisResponse = await authenticatedFetch(`${API_BASE_URL}/analysis/${latestFileId}?include_mitre_links=false`);
+        const analysisResponse = await fetch(`${API_BASE_URL}/analysis/${latestFileId}?include_mitre_links=false`);
         if (!analysisResponse.ok) {
           throw new Error('Failed to load remediation data from latest analysis.');
         }
@@ -201,12 +170,12 @@ function RemediationView() {
     };
 
     loadRemediationPanel();
-  }, [fileId, orgId]);
+  }, [orgId]);
 
   return (
-    <section className="panel remediation-page">
-      <h1>Remediation View</h1>
-      <p>Viewing file ID: {fileId || remediationId}</p>
+    <section className="panel creator-page">
+      <h1>Creator Detail</h1>
+      <p>Viewing creator ID: {creatorId}</p>
       <p>
         This route is now available so search results have a valid destination.
       </p>
@@ -237,4 +206,4 @@ function RemediationView() {
   );
 }
 
-export default RemediationView;
+export default CreatorView;

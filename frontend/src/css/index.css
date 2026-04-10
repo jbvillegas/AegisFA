@@ -20,7 +20,13 @@
   --accent-strong: #6686b6;
   --accent-soft: rgba(103, 132, 177, 0.2);
   --danger: #d97b7b;
+  --danger-text: #f0b2b2;
+  --danger-bright: #ff6b6b;
+  --danger-bright-hover: #ff8787;
+  --warning-text: #ffd8a8;
+  --warning-border: rgba(237, 167, 113, 0.45);
   --success: #7cb8a6;
+  --success-text: #bce8dd;
   --shadow-lg: 0 28px 60px rgba(0, 0, 0, 0.42);
   --shadow-md: 0 16px 32px rgba(0, 0, 0, 0.28);
   --shadow-sm: 0 8px 18px rgba(0, 0, 0, 0.18);
@@ -151,4 +157,12 @@ button {
 
 .panel a:hover {
   text-decoration: underline;
+}
+
+.panel-kicker {
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.74rem;
+  font-family: var(--font-mono);
 }

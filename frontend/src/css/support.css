@@ -1,169 +1,147 @@
-.support-page {
-  display: grid;
-  gap: var(--spacing-lg);
-  width: min(1040px, 100%);
+.support-shell {
+  gap: clamp(1.5rem, 3.5vw, 2.25rem);
 }
 
-.support-hero {
+/* Numbered quick-start steps */
+.support-steps {
   display: grid;
-  gap: 0.65rem;
+  gap: var(--spacing-md);
+  max-width: 48rem;
+  margin: 0 auto;
 }
 
-.support-kicker {
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.75rem;
+.support-step {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+}
+
+.support-step-num {
+  flex-shrink: 0;
   font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--accent);
+  letter-spacing: 0.05em;
 }
 
-.support-hero h1 {
-  font-size: clamp(1.8rem, 3.1vw, 2.45rem);
-  line-height: 1.04;
-  letter-spacing: -0.04em;
-}
-
-.support-section {
-  display: grid;
-  gap: 0.9rem;
-  padding: 1rem 1.05rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.support-list {
-  margin-left: 1rem;
-  display: grid;
-  gap: 0.55rem;
+.support-step p {
   color: var(--muted-color);
+  font-size: 0.95rem;
+  line-height: 1.6;
 }
 
-.support-list.ordered {
-  gap: 0.6rem;
-}
-
+/* Issue grid — 2 columns */
 .support-issue-grid {
   display: grid;
-  gap: 0.75rem;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-lg);
 }
 
-.support-issue-card {
-  display: grid;
-  gap: 0.5rem;
-  padding: 0.82rem 0.86rem;
-  border: 1px solid rgba(154, 174, 197, 0.16);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.support-issue-card h3 {
-  font-size: 0.98rem;
-  letter-spacing: -0.01em;
-}
-
-.support-issue-card p {
-  color: var(--muted-color);
-  font-size: 0.9rem;
-}
-
+/* Diagnostics table */
 .support-table-wrap {
-  border: 1px solid rgba(154, 174, 197, 0.16);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   overflow: hidden;
+  background: linear-gradient(180deg, rgba(20, 31, 46, 0.92), rgba(13, 20, 30, 0.96));
+  box-shadow: var(--shadow-sm);
 }
 
 .support-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
 }
 
 .support-table thead {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .support-table th,
 .support-table td {
-  padding: 0.65rem 0.7rem;
+  padding: 0.85rem 1rem;
   text-align: left;
-  border-bottom: 1px solid rgba(154, 174, 197, 0.12);
+  border-bottom: 1px solid var(--border-color);
   vertical-align: top;
 }
 
 .support-table th {
   color: var(--text-color);
   font-weight: var(--font-weight-semibold);
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
 }
 
 .support-table td {
   color: var(--muted-color);
 }
 
-.support-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
+.support-table td code {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--accent);
 }
 
-.support-command-grid {
-  display: grid;
-  gap: 0.72rem;
+.support-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
-.support-command-card {
-  display: grid;
-  gap: 0.45rem;
-  padding: 0.75rem 0.8rem;
-  border: 1px solid rgba(154, 174, 197, 0.16);
-  border-radius: var(--radius-sm);
+.support-table tbody tr {
+  transition: background 300ms ease;
+}
+
+.support-table tbody tr:hover {
   background: rgba(255, 255, 255, 0.03);
 }
 
-.support-command-card h3 {
-  font-size: 0.94rem;
-  letter-spacing: -0.01em;
+/* Checklist grid — wrap at 5 items, show as cards */
+.support-checklist-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Command grid */
+.support-command-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.support-cmd-card {
+  gap: 0.65rem;
 }
 
 .support-command {
   margin: 0;
-  padding: 0.55rem 0.65rem;
+  padding: 0.65rem 0.85rem;
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(154, 174, 197, 0.22);
+  border: 1px solid rgba(103, 132, 177, 0.2);
   background: rgba(7, 12, 19, 0.9);
-  color: #dfe8f4;
+  color: var(--accent);
   font-family: var(--font-mono);
   font-size: 0.82rem;
   overflow-x: auto;
+  line-height: 1.5;
 }
 
-.support-btn {
-  border-radius: 999px;
-  padding: 0.72rem 1.1rem;
-  text-decoration: none;
-  border: 1px solid transparent;
-  font-weight: var(--font-weight-semibold);
-  transition: transform var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .support-checklist-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.support-btn:hover {
-  transform: translateY(-1px);
-}
-
-.support-btn.primary {
-  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-  color: #09111b;
-}
-
-.support-btn.secondary {
-  background: rgba(255, 255, 255, 0.02);
-  border-color: var(--border-strong);
-  color: var(--text-color);
-}
-
-@media (max-width: 900px) {
+@media (max-width: 768px) {
   .support-issue-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .support-command-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .support-checklist-grid {
     grid-template-columns: 1fr;
   }
 

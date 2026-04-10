@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import '../css/homepage.css';
 import '../css/terms.css';
 
 const acceptancePoints = [
@@ -39,39 +40,58 @@ const terminationPoints = [
 
 function TermsPage() {
   return (
-    <section className="panel terms-page" aria-labelledby="terms-title">
-      <header className="terms-hero">
-        <p className="terms-kicker">Terms</p>
-        <h1 id="terms-title">Terms of Use for AegisFA</h1>
-        <p>
-          These Terms define acceptable use and operational boundaries for the AegisFA platform,
-          including ingestion workflows, analysis outputs, timeline intelligence, and support channels.
-        </p>
-      </header>
+    <div className="hp">
 
-      <section className="terms-section" aria-labelledby="acceptance-title">
-        <h2 id="acceptance-title">Acceptance and Scope</h2>
-        <ul className="terms-list">
-          {acceptancePoints.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
+      {/* Hero */}
+      <section className="hp-hero">
+        <div className="hp-hero-inner">
+          <p className="hp-kicker">Terms</p>
+          <h1 className="hp-hero-title">
+            Terms of Use for AegisFA
+          </h1>
+          <p className="hp-hero-sub">
+            These Terms define acceptable use and operational boundaries for the AegisFA platform, including ingestion workflows, analysis outputs, timeline intelligence, and support channels.
+          </p>
+        </div>
+        <div className="hp-hero-glow" aria-hidden="true" />
       </section>
 
-      <section className="terms-section" aria-labelledby="use-title">
-        <h2 id="use-title">Permitted and Prohibited Use</h2>
-        <div className="terms-two-col">
-          <article className="terms-card">
+      {/* Acceptance */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Agreement</p>
+          <h2>Acceptance and Scope</h2>
+        </header>
+        <div className="hp-features-grid terms-accept-grid">
+          {acceptancePoints.map((item, i) => (
+            <article key={i} className="hp-feature-card">
+              <p>{item}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* Permitted / Prohibited */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Usage Policy</p>
+          <h2>Permitted and Prohibited Use</h2>
+        </header>
+      </section>
+
+      <section>
+        <div className="terms-use-grid">
+          <article className="hp-feature-card terms-use-card">
             <h3>Permitted Use</h3>
-            <ul className="terms-list compact">
+            <ul className="terms-list">
               {permittedUse.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
           </article>
-          <article className="terms-card">
+          <article className="hp-feature-card terms-use-card terms-prohibited">
             <h3>Prohibited Use</h3>
-            <ul className="terms-list compact">
+            <ul className="terms-list">
               {prohibitedUse.map((item) => (
                 <li key={item}>{item}</li>
               ))}
@@ -80,45 +100,64 @@ function TermsPage() {
         </div>
       </section>
 
-      <section className="terms-section" aria-labelledby="boundaries-title">
-        <h2 id="boundaries-title">Service Boundaries</h2>
-        <ul className="terms-list">
-          {serviceBoundaries.map((item) => (
-            <li key={item}>{item}</li>
+      {/* Service Boundaries */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Expectations</p>
+          <h2>Service Boundaries</h2>
+        </header>
+        <div className="hp-features-grid terms-boundary-grid">
+          {serviceBoundaries.map((item, i) => (
+            <article key={i} className="hp-feature-card">
+              <p>{item}</p>
+            </article>
           ))}
-        </ul>
-      </section>
-
-      <section className="terms-section" aria-labelledby="liability-title">
-        <h2 id="liability-title">Disclaimers and Liability</h2>
-        <ul className="terms-list">
-          {liabilityPoints.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="terms-section" aria-labelledby="termination-title">
-        <h2 id="termination-title">Suspension, Changes, and Termination</h2>
-        <ul className="terms-list">
-          {terminationPoints.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      </section>
-
-      <section className="terms-section terms-cta" aria-labelledby="terms-next-title">
-        <h2 id="terms-next-title">Related Pages</h2>
-        <p>
-          Review Privacy for data handling context and Support for runbooks, diagnostics, and escalation guidance.
-        </p>
-        <div className="terms-actions">
-          <Link className="terms-btn primary" to="/privacy">Open Privacy</Link>
-          <Link className="terms-btn secondary" to="/support">Open Support</Link>
-          <Link className="terms-btn secondary" to="/contact">Open Contact</Link>
         </div>
       </section>
-    </section>
+
+      {/* Liability */}
+      <section className="hp-stats">
+        <header className="hp-section-header" style={{ marginBottom: 'var(--spacing-lg)' }}>
+          <p className="hp-kicker">Legal</p>
+          <h2>Disclaimers and Liability</h2>
+        </header>
+        <div className="terms-liability-grid">
+          {liabilityPoints.map((item, i) => (
+            <div key={i} className="terms-liability-item">
+              <span className="terms-liability-num">{String(i + 1).padStart(2, '0')}</span>
+              <p>{item}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Termination */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Enforcement</p>
+          <h2>Suspension, Changes, and Termination</h2>
+        </header>
+        <div className="hp-features-grid terms-term-grid">
+          {terminationPoints.map((item, i) => (
+            <article key={i} className="hp-feature-card">
+              <p>{item}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="hp-cta">
+        <h2>Related Pages</h2>
+        <p>Review Privacy for data handling context and Support for runbooks, diagnostics, and escalation guidance.</p>
+        <div className="hp-hero-actions">
+          <Link to="/privacy" className="hp-btn hp-btn-primary">Open Privacy</Link>
+          <Link to="/support" className="hp-btn hp-btn-secondary">Open Support</Link>
+          <Link to="/contact" className="hp-btn hp-btn-secondary">Open Contact</Link>
+        </div>
+      </section>
+
+    </div>
   );
 }
 

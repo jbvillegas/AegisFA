@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
+import '../css/homepage.css';
 import '../css/support.css';
 
 const quickStartSteps = [
-  'Start backend ingestion API from backend/ingestion with python3 run.py (default port 5007).',
-  'Start frontend from frontend with npm run dev (Vite development server).',
-  'Confirm environment values for Supabase URL and anonymous key are set before opening authenticated pages.',
-  'Upload a file from the Dashboard, then monitor analysis job progress and result status.',
+  { num: '01', text: 'Start backend ingestion API from backend/ingestion with python3 run.py (default port 5007).' },
+  { num: '02', text: 'Start frontend from frontend with npm run dev (Vite development server).' },
+  { num: '03', text: 'Confirm environment values for Supabase URL and anonymous key are set before opening authenticated pages.' },
+  { num: '04', text: 'Upload a file from the Dashboard, then monitor analysis job progress and result status.' },
 ];
 
 const commonIssues = [
@@ -36,31 +37,11 @@ const commonIssues = [
 ];
 
 const diagnostics = [
-  {
-    area: 'Health and Root',
-    endpoint: 'GET /',
-    purpose: 'Verifies ingestion API is running and reachable.',
-  },
-  {
-    area: 'Analysis Result',
-    endpoint: 'GET /analysis/:fileId',
-    purpose: 'Checks final stored analysis payload for a completed file.',
-  },
-  {
-    area: 'File Timeline',
-    endpoint: 'GET /timeline/file/:fileId',
-    purpose: 'Retrieves timeline items merged from raw events, detections, and AI narrative.',
-  },
-  {
-    area: 'Organization Timeline',
-    endpoint: 'GET /timeline/org/:orgId',
-    purpose: 'Retrieves cross-file timeline for organization-wide triage context.',
-  },
-  {
-    area: 'Background Jobs',
-    endpoint: 'GET /analysis-jobs/:jobId',
-    purpose: 'Polls asynchronous job progress, status, and final result linkage.',
-  },
+  { area: 'Health and Root', endpoint: 'GET /', purpose: 'Verifies ingestion API is running and reachable.' },
+  { area: 'Analysis Result', endpoint: 'GET /analysis/:fileId', purpose: 'Checks final stored analysis payload for a completed file.' },
+  { area: 'File Timeline', endpoint: 'GET /timeline/file/:fileId', purpose: 'Retrieves timeline items merged from raw events, detections, and AI narrative.' },
+  { area: 'Organization Timeline', endpoint: 'GET /timeline/org/:orgId', purpose: 'Retrieves cross-file timeline for organization-wide triage context.' },
+  { area: 'Background Jobs', endpoint: 'GET /analysis-jobs/:jobId', purpose: 'Polls asynchronous job progress, status, and final result linkage.' },
 ];
 
 const supportChecklist = [
@@ -72,56 +53,59 @@ const supportChecklist = [
 ];
 
 const diagnosticsCommands = [
-  {
-    title: 'Verify backend listener',
-    command: 'lsof -nP -iTCP:5007 -sTCP:LISTEN',
-  },
-  {
-    title: 'Check ingestion API health',
-    command: 'curl -sS http://127.0.0.1:5007/',
-  },
-  {
-    title: 'Inspect org timeline payload',
-    command:
-      'curl -sS "http://127.0.0.1:5007/timeline/org/<ORG_ID>?page=1&page_size=5"',
-  },
-  {
-    title: 'Inspect file timeline payload',
-    command:
-      'curl -sS "http://127.0.0.1:5007/timeline/file/<FILE_ID>?page=1&page_size=10"',
-  },
-  {
-    title: 'Build frontend to validate routing/pages',
-    command: 'cd /workspaces/frontend && npm run build',
-  },
+  { title: 'Verify backend listener', command: 'lsof -nP -iTCP:5007 -sTCP:LISTEN' },
+  { title: 'Check ingestion API health', command: 'curl -sS http://127.0.0.1:5007/' },
+  { title: 'Inspect org timeline payload', command: 'curl -sS "http://127.0.0.1:5007/timeline/org/<ORG_ID>?page=1&page_size=5"' },
+  { title: 'Inspect file timeline payload', command: 'curl -sS "http://127.0.0.1:5007/timeline/file/<FILE_ID>?page=1&page_size=10"' },
+  { title: 'Build frontend to validate routing', command: 'cd /workspaces/frontend && npm run build' },
 ];
 
 function SupportPage() {
   return (
-    <section className="panel support-page" aria-labelledby="support-title">
-      <header className="support-hero">
-        <p className="support-kicker">Support Center</p>
-        <h1 id="support-title">Operational Support for AegisFA</h1>
-        <p>
-          This page provides project-specific guidance for environment setup, ingestion diagnostics, timeline visibility, and
-          incident analysis troubleshooting across the full frontend and backend workflow.
-        </p>
-      </header>
+    <div className="hp support-shell">
 
-      <section className="support-section" aria-labelledby="quickstart-title">
-        <h2 id="quickstart-title">Quick Start Validation</h2>
-        <ol className="support-list ordered">
-          {quickStartSteps.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
+      {/* Hero */}
+      <section className="hp-hero">
+        <div className="hp-hero-inner">
+          <p className="hp-kicker">Support Center</p>
+          <h1 className="hp-hero-title">
+            Operational Support for AegisFA
+          </h1>
+          <p className="hp-hero-sub">
+            Project-specific guidance for environment setup, ingestion diagnostics, timeline visibility, and incident analysis troubleshooting across the full frontend and backend workflow.
+          </p>
+        </div>
+        <div className="hp-hero-glow" aria-hidden="true" />
       </section>
 
-      <section className="support-section" aria-labelledby="issues-title">
-        <h2 id="issues-title">Common Issues and Fix Paths</h2>
+      {/* Quick Start */}
+      <section className="hp-stats">
+        <header className="hp-section-header" style={{ marginBottom: 'var(--spacing-lg)' }}>
+          <p className="hp-kicker">Getting Started</p>
+          <h2>Quick Start Validation</h2>
+        </header>
+        <div className="support-steps">
+          {quickStartSteps.map((step) => (
+            <div key={step.num} className="support-step">
+              <span className="support-step-num">{step.num}</span>
+              <p>{step.text}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Common Issues */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Troubleshooting</p>
+          <h2>Common Issues and Fix Paths</h2>
+        </header>
+      </section>
+
+      <section>
         <div className="support-issue-grid">
           {commonIssues.map((issue) => (
-            <article className="support-issue-card" key={issue.title}>
+            <article className="hp-feature-card" key={issue.title}>
               <h3>{issue.title}</h3>
               <p><strong>Symptom:</strong> {issue.symptom}</p>
               <p><strong>Resolution:</strong> {issue.resolution}</p>
@@ -130,8 +114,15 @@ function SupportPage() {
         </div>
       </section>
 
-      <section className="support-section" aria-labelledby="diagnostics-title">
-        <h2 id="diagnostics-title">API Diagnostics Reference</h2>
+      {/* API Diagnostics */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Reference</p>
+          <h2>API Diagnostics Reference</h2>
+        </header>
+      </section>
+
+      <section>
         <div className="support-table-wrap">
           <table className="support-table">
             <thead>
@@ -145,7 +136,7 @@ function SupportPage() {
               {diagnostics.map((item) => (
                 <tr key={item.endpoint}>
                   <td>{item.area}</td>
-                  <td>{item.endpoint}</td>
+                  <td><code>{item.endpoint}</code></td>
                   <td>{item.purpose}</td>
                 </tr>
               ))}
@@ -154,26 +145,39 @@ function SupportPage() {
         </div>
       </section>
 
-      <section className="support-section" aria-labelledby="escalation-title">
-        <h2 id="escalation-title">Escalation Checklist</h2>
-        <p>
-          When reporting a failure, include the artifacts below so investigation can proceed quickly without reproducing the issue from scratch.
-        </p>
-        <ul className="support-list">
-          {supportChecklist.map((item) => (
-            <li key={item}>{item}</li>
+      {/* Escalation Checklist */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Escalation</p>
+          <h2>Include This When Reporting Issues</h2>
+          <p className="hp-section-sub">
+            When reporting a failure, include the artifacts below so investigation can proceed without reproducing the issue from scratch.
+          </p>
+        </header>
+        <div className="hp-why-grid support-checklist-grid">
+          {supportChecklist.map((item, i) => (
+            <article key={i} className="hp-why-card">
+              <p>{item}</p>
+            </article>
           ))}
-        </ul>
+        </div>
       </section>
 
-      <section className="support-section" aria-labelledby="diagnostics-commands-title">
-        <h2 id="diagnostics-commands-title">Run Diagnostics</h2>
-        <p>
-          Use these commands directly in the project workspace to confirm service availability, endpoint responses, and build integrity.
-        </p>
+      {/* Run Diagnostics */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Diagnostics</p>
+          <h2>Run Diagnostics</h2>
+          <p className="hp-section-sub">
+            Use these commands in the project workspace to confirm service availability, endpoint responses, and build integrity.
+          </p>
+        </header>
+      </section>
+
+      <section>
         <div className="support-command-grid">
           {diagnosticsCommands.map((item) => (
-            <article className="support-command-card" key={item.title}>
+            <article className="hp-feature-card support-cmd-card" key={item.title}>
               <h3>{item.title}</h3>
               <pre className="support-command"><code>{item.command}</code></pre>
             </article>
@@ -181,15 +185,18 @@ function SupportPage() {
         </div>
       </section>
 
-      <section className="support-section support-cta" aria-labelledby="support-next-title">
-        <h2 id="support-next-title">Continue in Product</h2>
-        <div className="support-actions">
-          <Link className="support-btn primary" to="/dashboard">Open Dashboard</Link>
-          <Link className="support-btn secondary" to="/admin">Open Admin</Link>
-          <Link className="support-btn secondary" to="/about">Project Overview</Link>
+      {/* CTA */}
+      <section className="hp-cta">
+        <h2>Continue in Product</h2>
+        <p>Jump directly into the dashboard, admin panel, or project overview.</p>
+        <div className="hp-hero-actions">
+          <Link to="/dashboard" className="hp-btn hp-btn-primary">Open Dashboard</Link>
+          <Link to="/admin" className="hp-btn hp-btn-secondary">Open Admin</Link>
+          <Link to="/about" className="hp-btn hp-btn-secondary">Project Overview</Link>
         </div>
       </section>
-    </section>
+
+    </div>
   );
 }
 

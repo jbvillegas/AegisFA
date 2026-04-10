@@ -23,4 +23,56 @@ if (!apiKey) {
 
 export const supabase = createClient(supabaseURL, apiKey);
 
+class HttpAuthError extends Error {
+	constructor(message, status) {
+		super(message);
+		this.name = 'HttpAuthError';
+		this.status = status;
+	}
+}
+
+async function parseApiErrorMessage(response) {
+	try {
+		const payload = await response.clone().json();
+		return payload?.error?.message || payload?.message || '';
+	} catch (_error) {
+		return '';
+	}
+}
+
+export async function authenticatedFetch(input, init = {}) {
+	const { skipAuthHandling, ...requestInit } = init;
+	const { data } = await supabase.auth.getSession();
+	const token = data?.session?.access_token || '';
+	const headers = new Headers(requestInit.headers || {});
+
+	if (token) {
+		headers.set('Authorization', `Bearer ${token}`);
+	}
+
+	const response = await fetch(input, {
+		...requestInit,
+		headers,
+	});
+
+	if (skipAuthHandling) {
+		return response;
+	}
+
+	if (response.status === 401) {
+		const message = await parseApiErrorMessage(response);
+		if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+			window.location.assign('/login?reason=expired');
+		}
+		throw new HttpAuthError(message || 'Your session expired. Please sign in again.', 401);
+	}
+
+	if (response.status === 403) {
+		const message = await parseApiErrorMessage(response);
+		throw new HttpAuthError(message || 'You do not have permission to perform this action.', 403);
+	}
+
+	return response;
+}
+
 export default supabase;

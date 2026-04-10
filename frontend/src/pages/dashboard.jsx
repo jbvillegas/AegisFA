@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { supabase } from '../client.js';
+import { authenticatedFetch, supabase } from '../client.js';
 import { usePersistentState } from '../hooks/use-persistent-state.js';
+import '../css/homepage.css';
 import '../css/dashboard.css';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
@@ -304,6 +305,10 @@ function DashboardPage() {
   const [recentJobsError, setRecentJobsError] = useState('');
   const [analysisStartedAt, setAnalysisStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [expandedFindingKey, setExpandedFindingKey] = useState(null);
+  const [expandedAlertKey, setExpandedAlertKey] = useState(null);
+  const [promotedFindingKeys, setPromotedFindingKeys] = useState([]);
+  const [promotingFindingKeys, setPromotingFindingKeys] = useState([]);
 
   useEffect(() => {
     let isMounted = true;
@@ -344,6 +349,25 @@ function DashboardPage() {
     }
   }, [orgId, setOrgId]);
 
+  useEffect(() => {
+    if (!isUploading || analysisStartedAt === null) {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - analysisStartedAt) / 1000));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isUploading, analysisStartedAt]);
+
+  useEffect(() => {
+    if (orgId && isUuid(orgId)) {
+      refreshSummaryCards();
+      refreshRecentJobs();
+    }
+  }, [orgId]);
+
   const refreshSummaryCards = async () => {
     if (!orgId.trim()) {
       setSummarySnapshot(SUMMARY_DEFAULTS);
@@ -379,15 +403,12 @@ function DashboardPage() {
       };
 
       if (latestFile?.id) {
-        const analysisResponse = await fetch(`${API_BASE_URL}/analysis/${latestFile.id}?include_mitre_links=false`);
+        const analysisResponse = await authenticatedFetch(`${API_BASE_URL}/analysis/${latestFile.id}?include_mitre_links=false`);
         if (analysisResponse.ok) {
           const latestAnalysis = await analysisResponse.json();
           nextSummary.threatLevel = latestAnalysis?.threat_level || 'pending';
           nextSummary.detectionsFound = latestAnalysis?.threats_found ?? 0;
           nextSummary.lastAnalysisTime = formatTimestamp(latestAnalysis?.created_at || latestFileTimestamp);
-          nextSummary.predictionConfidence = normalizeConfidence(
-            latestAnalysis?.confidence_score ?? latestAnalysis?.confidence,
-          );
           setLatestAnalysis(latestAnalysis);
         }
       }
@@ -402,7 +423,6 @@ function DashboardPage() {
 
   const refreshRecentJobs = async () => {
     if (!orgId.trim()) {
-      setRecentJobs([]);
       return;
     }
 
@@ -410,111 +430,54 @@ function DashboardPage() {
     setRecentJobsError('');
 
     try {
-      const jobsResult = await supabase
-        .from('analysis_jobs')
-        .select('id, status, progress_pct, started_at, completed_at, created_at, output_path')
-        .eq('org_id', orgId.trim())
-        .order('created_at', { ascending: false })
-        .limit(RECENT_JOBS_LIMIT);
+      const response = await authenticatedFetch(
+        `${API_BASE_URL}/analysis-jobs?org_id=${orgId.trim()}&limit=${RECENT_JOBS_LIMIT}`
+      );
 
-      if (jobsResult.error) {
-        throw jobsResult.error;
+      if (!response.ok) {
+        throw new Error('Failed to fetch recent jobs.');
       }
 
-      const jobs = jobsResult.data || [];
-      if (jobs.length === 0) {
-        setRecentJobs([]);
-        return;
-      }
+      const data = await response.json();
+      const mapped = (data.jobs || []).map((job) => ({
+        id: job.id,
+        filename: job.filename || job.file_name || 'Unknown',
+        status: job.status,
+        progress: job.progress_pct || 0,
+        startedAt: job.created_at,
+        completedAt: job.completed_at,
+        fileId: job.file_id,
+        resultId: job.result_id,
+      }));
 
-      const jobIds = jobs.map((job) => job.id);
-      const itemsResult = await supabase
-        .from('analysis_job_items')
-        .select('job_id, file_name, status, progress_pct, started_at, completed_at, file_id, result_id')
-        .in('job_id', jobIds);
-
-      if (itemsResult.error) {
-        throw itemsResult.error;
-      }
-
-      const itemsByJob = new Map();
-      (itemsResult.data || []).forEach((item) => {
-        if (!itemsByJob.has(item.job_id)) {
-          itemsByJob.set(item.job_id, []);
-        }
-        itemsByJob.get(item.job_id).push(item);
-      });
-
-      const mappedJobs = jobs.map((job) => {
-        const jobItems = itemsByJob.get(job.id) || [];
-        const primaryItem = jobItems[0] || {};
-        const filename = primaryItem.file_name || getFilenameFromPath(job.output_path);
-        const status = primaryItem.status || job.status || 'queued';
-        const progress = typeof primaryItem.progress_pct === 'number'
-          ? primaryItem.progress_pct
-          : (typeof job.progress_pct === 'number' ? job.progress_pct : 0);
-        const startedAt = primaryItem.started_at || job.started_at || job.created_at;
-        const completedAt = primaryItem.completed_at || job.completed_at || null;
-
-        return {
-          id: job.id,
-          filename,
-          status,
-          progress,
-          startedAt,
-          completedAt,
-          fileId: primaryItem.file_id || '',
-          resultId: primaryItem.result_id || '',
-        };
-      });
-
-      setRecentJobs(mappedJobs);
-    } catch (jobsLoadError) {
-      setRecentJobsError(jobsLoadError.message || 'Failed to load recent jobs.');
+      setRecentJobs(mapped);
+    } catch (recentJobsLoadError) {
+      setRecentJobsError(recentJobsLoadError.message || 'Failed to load recent jobs.');
     } finally {
       setIsRecentJobsLoading(false);
     }
   };
 
-  useEffect(() => {
-    refreshSummaryCards();
-  }, [orgId]);
-
-  useEffect(() => {
-    refreshRecentJobs();
-  }, [orgId]);
-
-  useEffect(() => {
-    if (!orgId.trim()) {
-      return undefined;
+  const openJobResult = async (job) => {
+    if (!job.fileId) {
+      return;
     }
 
-    const intervalId = window.setInterval(() => {
-      refreshRecentJobs();
-    }, 10000);
+    try {
+      const response = await authenticatedFetch(`${API_BASE_URL}/analysis/${job.fileId}`);
 
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [orgId]);
+      if (!response.ok) {
+        setErrorMessage('Failed to load analysis result.');
+        return;
+      }
 
-  useEffect(() => {
-    const shouldTrack = Boolean(analysisStartedAt)
-      && !['idle', 'completed', 'failed'].includes(uploadStage);
-
-    if (!shouldTrack) {
-      return undefined;
+      const result = await response.json();
+      setAnalysisResult(result);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (openResultError) {
+      setErrorMessage(openResultError.message || 'Failed to open job result.');
     }
-
-    const timerId = window.setInterval(() => {
-      const elapsed = Math.max(0, Math.floor((Date.now() - analysisStartedAt) / 1000));
-      setElapsedSeconds(elapsed);
-    }, 1000);
-
-    return () => {
-      window.clearInterval(timerId);
-    };
-  }, [analysisStartedAt, uploadStage]);
+  };
 
   const resetUpload = () => {
     setSelectedFile(null);
@@ -530,34 +493,6 @@ function DashboardPage() {
     setAnalysisResult(null);
     setAnalysisStartedAt(null);
     setElapsedSeconds(0);
-  };
-
-  const openJobResult = async (job) => {
-    setErrorMessage('');
-
-    if (job.fileId) {
-      try {
-        const analysisResponse = await fetch(`${API_BASE_URL}/analysis/${job.fileId}?include_mitre_links=true`);
-        if (!analysisResponse.ok) {
-          throw new Error('Failed to open selected analysis result.');
-        }
-
-        const payload = await analysisResponse.json();
-        setAnalysisResult(payload);
-        setSuccessMessage(`Loaded result for ${job.filename}.`);
-        return;
-      } catch (error) {
-        setErrorMessage(error.message || 'Failed to open selected analysis result.');
-        return;
-      }
-    }
-
-    if (job.resultId) {
-      setSuccessMessage('Result is still syncing to file context. Please retry in a moment.');
-      return;
-    }
-
-    setSuccessMessage('Result is not ready yet for this job.');
   };
 
   const uploadAndAnalyze = async (event) => {
@@ -587,7 +522,7 @@ function DashboardPage() {
 
     try {
       const totalParts = Math.max(1, Math.ceil(selectedFile.size / CHUNK_SIZE));
-      const initResponse = await fetch(`${API_BASE_URL}/upload-sessions/init`, {
+      const initResponse = await authenticatedFetch(`${API_BASE_URL}/upload-sessions/init`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -619,7 +554,7 @@ function DashboardPage() {
         formData.append('part_number', String(partNumber));
         formData.append('file', chunk, selectedFile.name);
 
-        const partResponse = await fetch(`${API_BASE_URL}/upload-sessions/upload-part`, {
+        const partResponse = await authenticatedFetch(`${API_BASE_URL}/upload-sessions/upload-part`, {
           method: 'POST',
           body: formData,
         });
@@ -634,7 +569,7 @@ function DashboardPage() {
       setUploadStage('completing');
       setUploadMessage('Finalizing upload and queueing analysis.');
 
-      const completeResponse = await fetch(`${API_BASE_URL}/upload-sessions/complete`, {
+      const completeResponse = await authenticatedFetch(`${API_BASE_URL}/upload-sessions/complete`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -665,7 +600,7 @@ function DashboardPage() {
 
       while (!finished && attempts < 60) {
         attempts += 1;
-        const jobResponse = await fetch(`${API_BASE_URL}/analysis-jobs/${completeData.job_id}`);
+        const jobResponse = await authenticatedFetch(`${API_BASE_URL}/analysis-jobs/${completeData.job_id}`);
 
         if (!jobResponse.ok) {
           const statusPayload = await jobResponse.json().catch(() => null);
@@ -721,6 +656,46 @@ function DashboardPage() {
     }
   };
 
+  const promoteFindingToIncident = async (finding, findingKey) => {
+    if (!orgId.trim()) {
+      setErrorMessage('Enter an org context before promoting an alert.');
+      return;
+    }
+
+    if (promotedFindingKeys.includes(findingKey) || promotingFindingKeys.includes(findingKey)) {
+      return;
+    }
+
+    const title = finding?.threat_type || finding?.description || 'Alert review item';
+
+    try {
+      setPromotingFindingKeys((current) => [...current, findingKey]);
+      const response = await authenticatedFetch(`${API_BASE_URL}/incidents`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          org_id: orgId.trim(),
+          title,
+          severity: finding?.severity || 'medium',
+          status: 'open',
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(getErrorMessage(await response.json().catch(() => null), 'Failed to promote alert to incident.'));
+      }
+
+      setPromotedFindingKeys((current) => (current.includes(findingKey) ? current : [...current, findingKey]));
+      setSuccessMessage(`Promoted ${title} to an incident.`);
+    } catch (error) {
+      setErrorMessage(error.message || 'Failed to promote alert to incident.');
+    } finally {
+      setPromotingFindingKeys((current) => current.filter((key) => key !== findingKey));
+    }
+  };
+
   const currentStatus = STATUS_LABELS[uploadStage] || STATUS_LABELS.idle;
   const progressValue = uploadStage === 'uploading' || uploadStage === 'completing' ? uploadProgress : analysisProgress;
   const safeProgress = Math.max(0, Math.min(100, progressValue));
@@ -764,6 +739,16 @@ function DashboardPage() {
     })
     .slice(0, 5);
 
+  const getFindingKey = (finding, index) => finding?.id || finding?.threat_type || finding?.rule_name || `finding-${index}`;
+
+  const toggleFinding = (findingKey) => {
+    setExpandedFindingKey((current) => (current === findingKey ? null : findingKey));
+  };
+
+  const toggleAlert = (alertKey) => {
+    setExpandedAlertKey((current) => (current === alertKey ? null : alertKey));
+  };
+
   const mitreTechniques = (activeAnalysis?.mitre_links || activeAnalysis?.mitre_techniques || [])
     .filter((item) => item && typeof item === 'object')
     .map((item, index) => {
@@ -791,11 +776,27 @@ function DashboardPage() {
   };
 
   return (
-    <section className="homepage">
-      
+    <div className="hp dash-shell">
+
+      {/* Hero */}
+      <section className="hp-hero">
+        <div className="hp-hero-inner">
+          <p className="hp-kicker">Security Operations</p>
+          <h1 className="hp-hero-title">Analysis Dashboard</h1>
+          <p className="hp-hero-sub">
+            Upload log files, track analysis jobs, review detections, and act on AI-generated intelligence from one place.
+          </p>
+          <div className="hp-hero-actions">
+            <Link to="/workspace" className="hp-btn hp-btn-secondary">Open Workspace</Link>
+            <Link to="/feedback" className="hp-btn hp-btn-secondary">AI Feedback</Link>
+          </div>
+        </div>
+        <div className="hp-hero-glow" aria-hidden="true" />
+      </section>
+
       <section className="upload-panel" aria-labelledby="upload-panel-title">
         <div className="upload-panel-copy">
-          <p className="panel-kicker">Primary Upload</p>
+          <p className="hp-kicker">Primary Upload</p>
           <h2 id="upload-panel-title">Ingest a file into Supabase</h2>
           <p>
             Pick a file, choose the source type, attach it to an org context, and watch the upload move into analysis.
@@ -812,6 +813,7 @@ function DashboardPage() {
             <input
               key={fileInputKey}
               id="upload-file"
+              className={selectedFile ? 'file-selected' : ''}
               type="file"
               accept=".csv,.log,.txt,.json"
               onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
@@ -832,6 +834,7 @@ function DashboardPage() {
                   </option>
                 ))}
               </select>
+              <span className="field-hint">Stored in the backend as source_type and used for Supabase records.</span>
             </label>
 
             <label className="field">
@@ -923,22 +926,12 @@ function DashboardPage() {
 
       <section className="content-area" aria-labelledby="overview-title">
         <header>
-          <p>Overview</p>
+          <p className="hp-kicker">Overview</p>
           <h2 id="overview-title">Security Operations Home</h2>
           <p>
             Track uploads, review detections, and jump into analysis from one place.
           </p>
         </header>
-
-        <section aria-labelledby="quick-actions-title">
-          <h2 id="quick-actions-title">Quick Actions</h2>
-          <div>
-            <button type="button">Upload Log File</button>
-            <button type="button">Start New Analysis</button>
-            <Link to="/login">Go to Login</Link>
-            <Link to="/admin">Admin View</Link>
-          </div>
-        </section>
 
         <section aria-labelledby="metrics-title">
           <h2 id="metrics-title">Current Status</h2>
@@ -954,7 +947,7 @@ function DashboardPage() {
           <h2 id="recent-title">Recent Analysis</h2>
           {analysisResult ? (
             <article>
-              <h3>{threatLevel}</h3>
+              <h3>{titleCase(threatLevel)}</h3>
               <p>{analysisResult.summary || 'The backend has stored a new analysis result.'}</p>
               <p>
                 Threats found: {detectionCount} • MITRE mappings: {mitreCount}
@@ -994,60 +987,198 @@ function DashboardPage() {
         </section>
 
         <section className="intel-grid" aria-label="Findings and MITRE intelligence">
-          <article className="intel-panel" aria-labelledby="top-findings-title">
+          <article className="intel-panel top-findings-panel" aria-labelledby="top-findings-title">
             <h2 id="top-findings-title">Top Findings</h2>
             {topFindings.length === 0 ? (
               <p className="intel-empty">No threat findings yet. Upload and analyze a file to populate this panel.</p>
             ) : (
-              <ul className="findings-list">
+              <ul className="findings-list top-findings-list">
                 {topFindings.map((finding, index) => (
                   <li key={`${finding.threat_type || 'finding'}-${index}`} className="finding-item">
-                    <div className="finding-head">
-                      <p className="finding-title">{finding.threat_type || 'Threat finding'}</p>
-                      <span className={`severity-pill severity-${String(finding.severity || 'medium').toLowerCase()}`}>
-                        {titleCase(finding.severity || 'medium')}
-                      </span>
-                    </div>
-                    <p className="finding-summary">{clampText(finding.description || 'Threat summary unavailable.')}</p>
+                    {(() => {
+                      const findingKey = getFindingKey(finding, index);
+                      const isExpanded = expandedFindingKey === findingKey;
+                      const isPromoted = promotedFindingKeys.includes(findingKey);
+                      const isPromoting = promotingFindingKeys.includes(findingKey);
+                      const findingDescription = finding.description || 'Threat summary unavailable.';
+                      const indicators = Array.isArray(finding.indicators) ? finding.indicators.filter(Boolean) : [];
+
+                      return (
+                        <>
+                          <div className="finding-toggle">
+                            <div className="finding-head">
+                              <span
+                                className="finding-title finding-title-toggle"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => toggleFinding(findingKey)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    toggleFinding(findingKey);
+                                  }
+                                }}
+                                aria-expanded={isExpanded}
+                                aria-controls={`finding-report-${findingKey}`}
+                              >
+                                {titleCase(finding.threat_type || 'Threat finding')}
+                              </span>
+                              <span className={`severity-pill severity-${String(finding.severity || 'medium').toLowerCase()}`}>
+                                {titleCase(finding.severity || 'medium')}
+                              </span>
+                            </div>
+                            <p className="finding-summary">
+                              {isExpanded ? findingDescription : clampText(findingDescription)}
+                            </p>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="finding-details" id={`finding-report-${findingKey}`}>
+                              <div className="finding-details-grid">
+                                <div>
+                                  <p className="finding-details-label">Report</p>
+                                  <p className="finding-details-text">{findingDescription}</p>
+                                </div>
+
+                                {indicators.length > 0 && (
+                                  <div>
+                                    <p className="finding-details-label">Indicators</p>
+                                    <ul className="finding-indicators-list">
+                                      {indicators.map((indicator, indicatorIndex) => (
+                                        <li key={`${findingKey}-indicator-${indicatorIndex}`}>{indicator}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                className={`finding-action ${isPromoted ? 'finding-action-success' : ''}`}
+                                onClick={() => promoteFindingToIncident(finding, findingKey)}
+                                disabled={isPromoted || isPromoting}
+                              >
+                                {isPromoted ? 'Promoted ✓' : isPromoting ? 'Promoting...' : 'Promote to Incident'}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </li>
                 ))}
               </ul>
             )}
           </article>
 
-          <article className="intel-panel" aria-labelledby="mitre-panel-title">
+          <article className="intel-panel mitre-panel" aria-labelledby="mitre-panel-title">
             <h2 id="mitre-panel-title">MITRE Techniques</h2>
             {mitreTechniques.length === 0 ? (
               <p className="intel-empty">No MITRE mappings yet. Techniques appear after completed analysis.</p>
             ) : (
-              <ul className="mitre-list">
+              <ul className="mitre-list mitre-findings-list">
                 {mitreTechniques.map((technique) => (
                   <li key={technique.key} className="mitre-item">
-                    {technique.attackUrl ? (
-                      <a className="mitre-link-card" href={technique.attackUrl} target="_blank" rel="noreferrer">
-                        <div className="mitre-head">
-                          <p className="mitre-id">{technique.techniqueId}</p>
-                          <span className="mitre-confidence-label">{technique.confidenceLabel}</span>
-                        </div>
-                        <p className="mitre-name">{technique.name}</p>
-                        <p className="mitre-tactic">{technique.tactic}</p>
-                        <div className="mitre-confidence-track" aria-hidden="true">
-                          <div className="mitre-confidence-fill" style={{ width: `${Math.round(technique.confidence * 100)}%` }} />
-                        </div>
-                      </a>
-                    ) : (
-                      <>
-                        <div className="mitre-head">
-                          <p className="mitre-id">{technique.techniqueId}</p>
-                          <span className="mitre-confidence-label">{technique.confidenceLabel}</span>
-                        </div>
-                        <p className="mitre-name">{technique.name}</p>
-                        <p className="mitre-tactic">{technique.tactic}</p>
-                        <div className="mitre-confidence-track" aria-hidden="true">
-                          <div className="mitre-confidence-fill" style={{ width: `${Math.round(technique.confidence * 100)}%` }} />
-                        </div>
-                      </>
-                    )}
+                    <div className="finding-toggle">
+                      <div className="mitre-head">
+                        {technique.attackUrl ? (
+                          <a className="finding-title finding-title-toggle mitre-name mitre-direct-link" href={technique.attackUrl} target="_blank" rel="noreferrer">
+                            {technique.name}
+                          </a>
+                        ) : (
+                          <p className="finding-title mitre-name">{technique.name}</p>
+                        )}
+                        <span className="mitre-confidence-label">{technique.confidenceLabel}</span>
+                      </div>
+                      <p className="mitre-tactic">{`${technique.techniqueId} • ${technique.tactic}`}</p>
+                      <div className="mitre-confidence-track" aria-hidden="true">
+                        <div className="mitre-confidence-fill" style={{ width: `${Math.round(technique.confidence * 100)}%` }} />
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </article>
+
+          <article className="intel-panel alert-review-panel" aria-labelledby="alert-review-title">
+            <h2 id="alert-review-title">Alert Review</h2>
+            {topFindings.length === 0 ? (
+              <p className="intel-empty">No alerts to review yet. Completed analyses will appear here.</p>
+            ) : (
+              <ul className="findings-list alert-findings-list">
+                {topFindings.map((finding, index) => (
+                  <li key={`alert-${finding.threat_type || 'finding'}-${index}`} className="finding-item">
+                    {(() => {
+                      const alertKey = getFindingKey(finding, index);
+                      const isExpanded = expandedAlertKey === alertKey;
+                      const isPromoted = promotedFindingKeys.includes(alertKey);
+                      const isPromoting = promotingFindingKeys.includes(alertKey);
+                      const findingDescription = finding.description || 'Threat summary unavailable.';
+                      const indicators = Array.isArray(finding.indicators) ? finding.indicators.filter(Boolean) : [];
+
+                      return (
+                        <>
+                          <div className="finding-toggle">
+                            <div className="finding-head">
+                              <span
+                                className="finding-title finding-title-toggle"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => toggleAlert(alertKey)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    toggleAlert(alertKey);
+                                  }
+                                }}
+                                aria-expanded={isExpanded}
+                                aria-controls={`alert-report-${alertKey}`}
+                              >
+                                {titleCase(finding.threat_type || 'Threat finding')}
+                              </span>
+                              <span className={`severity-pill severity-${String(finding.severity || 'medium').toLowerCase()}`}>
+                                {titleCase(finding.severity || 'medium')}
+                              </span>
+                            </div>
+                            <p className="finding-summary">
+                              {isExpanded ? findingDescription : clampText(findingDescription)}
+                            </p>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="finding-details" id={`alert-report-${alertKey}`}>
+                              <div className="finding-details-grid">
+                                <div>
+                                  <p className="finding-details-label">Report</p>
+                                  <p className="finding-details-text">{findingDescription}</p>
+                                </div>
+
+                                {indicators.length > 0 && (
+                                  <div>
+                                    <p className="finding-details-label">Indicators</p>
+                                    <ul className="finding-indicators-list">
+                                      {indicators.map((indicator, indicatorIndex) => (
+                                        <li key={`${alertKey}-indicator-${indicatorIndex}`}>{indicator}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                className={`finding-action ${isPromoted ? 'finding-action-success' : ''}`}
+                                onClick={() => promoteFindingToIncident(finding, alertKey)}
+                                disabled={isPromoted || isPromoting}
+                              >
+                                {isPromoted ? 'Promoted ✓' : isPromoting ? 'Promoting...' : 'Promote to Incident'}
+                              </button>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </li>
                 ))}
               </ul>
@@ -1124,8 +1255,17 @@ function DashboardPage() {
             </p>
           )}
         </section>
+
+        <section aria-labelledby="dashboard-shortcuts-title">
+          <h2 id="dashboard-shortcuts-title">Workspaces</h2>
+          <p>Open the dedicated collaboration and feedback pages when you need to manage SOC work or review AI responses.</p>
+          <div className="dashboard-shortcuts">
+            <Link className="upload-submit" to="/workspace">Open Collaborative Workspace</Link>
+            <Link className="upload-reset" to="/feedback">Open AI Feedback</Link>
+          </div>
+        </section>
       </section>
-    </section>
+    </div>
   );
 }
 
