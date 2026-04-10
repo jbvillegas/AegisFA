@@ -1,116 +1,49 @@
-.about-page {
+.about-shell {
+  gap: clamp(1.5rem, 3.5vw, 2.25rem);
+}
+.about-cap-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* Numbered workflow steps */
+.about-steps {
   display: grid;
-  gap: var(--spacing-lg);
-  width: min(1040px, 100%);
+  gap: var(--spacing-md);
+  max-width: 48rem;
+  margin: 0 auto;
 }
 
-.about-hero {
-  display: grid;
-  gap: 0.65rem;
+.about-step {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
 }
 
-.about-kicker {
-  color: var(--accent);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-size: 0.75rem;
+.about-step-num {
+  flex-shrink: 0;
   font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: var(--font-weight-bold);
+  color: var(--accent);
+  letter-spacing: 0.05em;
 }
 
-.about-hero h1 {
-  font-size: clamp(1.8rem, 3.2vw, 2.5rem);
-  line-height: 1.04;
-  letter-spacing: -0.04em;
+.about-step p {
+  color: var(--muted-color);
+  font-size: 0.95rem;
+  line-height: 1.6;
 }
 
-.about-section {
-  display: grid;
-  gap: 0.9rem;
-  padding: 1rem 1.05rem;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.about-section h2 {
-  font-size: 1.15rem;
-}
-
-.about-capability-grid {
-  display: grid;
-  gap: 0.75rem;
+.about-arch-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.about-card {
-  display: grid;
-  gap: 0.45rem;
-  padding: 0.8rem 0.85rem;
-  border: 1px solid rgba(154, 174, 197, 0.16);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.03);
-}
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .about-cap-grid {
+    grid-template-columns: 1fr;
+  }
 
-.about-card h3 {
-  font-size: 0.98rem;
-  letter-spacing: -0.01em;
-}
-
-.about-card p {
-  color: var(--muted-color);
-  font-size: 0.9rem;
-}
-
-.about-workflow-list {
-  margin-left: 1rem;
-  display: grid;
-  gap: 0.6rem;
-  color: var(--muted-color);
-}
-
-.about-bullet-list {
-  margin-left: 1rem;
-  display: grid;
-  gap: 0.55rem;
-  color: var(--muted-color);
-}
-
-.about-cta p {
-  color: var(--muted-color);
-}
-
-.about-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
-}
-
-.about-btn {
-  border-radius: 999px;
-  padding: 0.72rem 1.1rem;
-  text-decoration: none;
-  border: 1px solid transparent;
-  font-weight: var(--font-weight-semibold);
-  transition: transform var(--transition), border-color var(--transition), background var(--transition), color var(--transition);
-}
-
-.about-btn:hover {
-  transform: translateY(-1px);
-}
-
-.about-btn.primary {
-  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-  color: #09111b;
-}
-
-.about-btn.secondary {
-  background: rgba(255, 255, 255, 0.02);
-  border-color: var(--border-strong);
-  color: var(--text-color);
-}
-
-@media (max-width: 800px) {
-  .about-capability-grid {
+  .about-arch-grid {
     grid-template-columns: 1fr;
   }
 }

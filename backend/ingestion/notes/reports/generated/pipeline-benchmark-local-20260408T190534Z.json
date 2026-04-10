@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-04-08T19:05:34.750006+00:00",
+  "tag": "local",
+  "source_type": "firewall",
+  "skip_correlation": true,
+  "iterations_per_file": 2,
+  "inputs": [
+    "/workspaces/backend/ingestion/assets/Wednesday-workingHours.tiny.csv"
+  ],
+  "summary": {
+    "parse": {
+      "runs": 2,
+      "avg_duration_ms": 0.12756249998346902,
+      "p95_duration_ms": 0.22658299894828815,
+      "avg_throughput_eps": 0.0,
+      "max_duration_ms": 0.22658299894828815
+    },
+    "correlation": {
+      "runs": 0,
+      "avg_duration_ms": 0.0,
+      "p95_duration_ms": 0.0,
+      "avg_throughput_eps": 0.0,
+      "max_duration_ms": 0.0
+    }
+  },
+  "results": [
+    {
+      "input_file": "/workspaces/backend/ingestion/assets/Wednesday-workingHours.tiny.csv",
+      "iteration": 1,
+      "parse": {
+        "stage": "parse",
+        "duration_ms": 0.22658299894828815,
+        "throughput_eps": 0.0,
+        "entries": 0
+      },
+      "correlation": null
+    },
+    {
+      "input_file": "/workspaces/backend/ingestion/assets/Wednesday-workingHours.tiny.csv",
+      "iteration": 2,
+      "parse": {
+        "stage": "parse",
+        "duration_ms": 0.0285420010186499,
+        "throughput_eps": 0.0,
+        "entries": 0
+      },
+      "correlation": null
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import '../css/homepage.css';
 import '../css/contact.css';
 
 const contactChannels = [
@@ -61,21 +62,34 @@ const severityGuide = [
 
 function ContactPage() {
   return (
-    <section className="panel contact-page" aria-labelledby="contact-title">
-      <header className="contact-hero">
-        <p className="contact-kicker">Contact</p>
-        <h1 id="contact-title">Get Help, Escalate Issues, and Reach the Right Team</h1>
-        <p>
-          This contact center is aligned to the AegisFA operating workflow. Use it to route support, escalation,
-          and access requests with the exact technical context needed for fast resolution.
-        </p>
-      </header>
+    <div className="hp contact-shell">
 
-      <section className="contact-section" aria-labelledby="channels-title">
-        <h2 id="channels-title">Contact Paths</h2>
-        <div className="contact-grid">
+      {/* Hero */}
+      <section className="hp-hero">
+        <div className="hp-hero-inner">
+          <p className="hp-kicker">Contact</p>
+          <h1 className="hp-hero-title">
+            Get Help, Escalate Issues, and Reach the Right Team
+          </h1>
+          <p className="hp-hero-sub">
+            This contact center is aligned to the AegisFA operating workflow. Use it to route support, escalation, and access requests with the exact technical context needed for fast resolution.
+          </p>
+        </div>
+        <div className="hp-hero-glow" aria-hidden="true" />
+      </section>
+
+      {/* Contact Paths */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Reach Out</p>
+          <h2>Contact Paths</h2>
+        </header>
+      </section>
+
+      <section>
+        <div className="hp-features-grid">
           {contactChannels.map((channel) => (
-            <article key={channel.title} className="contact-card">
+            <article key={channel.title} className="hp-feature-card">
               <h3>{channel.title}</h3>
               <p><strong>Who:</strong> {channel.audience}</p>
               <p>{channel.details}</p>
@@ -85,20 +99,33 @@ function ContactPage() {
         </div>
       </section>
 
-      <section className="contact-section" aria-labelledby="required-context-title">
-        <h2 id="required-context-title">Include This in Every Request</h2>
-        <ul className="contact-list">
-          {requiredContext.map((item) => (
-            <li key={item}>{item}</li>
+      {/* Required Context */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Context</p>
+          <h2>Include This in Every Request</h2>
+        </header>
+        <div className="hp-why-grid contact-context-grid">
+          {requiredContext.map((item, i) => (
+            <article key={i} className="hp-why-card">
+              <p>{item}</p>
+            </article>
           ))}
-        </ul>
+        </div>
       </section>
 
-      <section className="contact-section" aria-labelledby="severity-title">
-        <h2 id="severity-title">Severity and Response Expectations</h2>
+      {/* Severity Guide */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Response SLAs</p>
+          <h2>Severity and Response Expectations</h2>
+        </header>
+      </section>
+
+      <section>
         <div className="contact-severity-grid">
           {severityGuide.map((item) => (
-            <article key={item.level} className="contact-severity-card">
+            <article key={item.level} className="hp-feature-card">
               <h3>{item.level}</h3>
               <p><strong>Impact:</strong> {item.impact}</p>
               <p><strong>Response:</strong> {item.response}</p>
@@ -107,15 +134,18 @@ function ContactPage() {
         </div>
       </section>
 
-      <section className="contact-section contact-cta" aria-labelledby="next-actions-title">
-        <h2 id="next-actions-title">Next Actions</h2>
-        <div className="contact-actions">
-          <Link className="contact-btn primary" to="/support">Open Support Playbook</Link>
-          <Link className="contact-btn secondary" to="/about">View Project Overview</Link>
-          <Link className="contact-btn secondary" to="/dashboard">Return to Dashboard</Link>
+      {/* CTA */}
+      <section className="hp-cta">
+        <h2>Next Actions</h2>
+        <p>Review the support playbook, explore the project overview, or return to your dashboard.</p>
+        <div className="hp-hero-actions">
+          <Link to="/support" className="hp-btn hp-btn-primary">Open Support Playbook</Link>
+          <Link to="/about" className="hp-btn hp-btn-secondary">View Project Overview</Link>
+          <Link to="/dashboard" className="hp-btn hp-btn-secondary">Return to Dashboard</Link>
         </div>
       </section>
-    </section>
+
+    </div>
   );
 }
 

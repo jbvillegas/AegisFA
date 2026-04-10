@@ -12,11 +12,15 @@ _TS_FORMATS = (
 )
 
 def parse_iso_string(raw: str) -> Optional[datetime]: #ISO 8601 only parser for strict timestamp fields
-    
     if not raw:
         return None
+
+    if isinstance(raw, datetime):
+        return raw
+
+    raw_text = str(raw)
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return datetime.fromisoformat(raw_text.replace("Z", "+00:00"))
     except (ValueError, TypeError):
         pass
     return None
@@ -30,7 +34,6 @@ def parse_timestamp(entry: dict) -> Optional[datetime]:
             break
     if raw is None:
         return None
-    
 
     #ISO 8601
     try:
@@ -39,7 +42,6 @@ def parse_timestamp(entry: dict) -> Optional[datetime]:
     except (ValueError, TypeError):
         pass
 
-    
     for fmt in _TS_FORMATS:
         try:
             return datetime.strptime(raw, fmt)

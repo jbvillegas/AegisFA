@@ -117,7 +117,7 @@ def _to_training_pairs(df: pd.DataFrame, label_col: str) -> List[Tuple[Dict, str
 def prepare_cicids2019_training_bundle(
 	dataset_path: str,
 	seed: int = 42,
-	min_samples_per_class: int = 5,
+	min_samples_per_class: int = 50,
 	max_rows: int | None = None,
 ) -> Dict:
 	"""Build a stratified 70/15/15 training bundle from CICIDS2019."""

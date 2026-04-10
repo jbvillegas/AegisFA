@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-04-08T19:06:12.510992+00:00",
+  "tag": "local-micro",
+  "source_type": "firewall",
+  "skip_correlation": true,
+  "iterations_per_file": 2,
+  "inputs": [
+    "/workspaces/backend/ingestion/assets/Wednesday-workingHours.micro.csv"
+  ],
+  "summary": {
+    "parse": {
+      "runs": 2,
+      "avg_duration_ms": 8.651333499983593,
+      "p95_duration_ms": 11.920875000214437,
+      "avg_throughput_eps": 67424.5436108871,
+      "max_duration_ms": 11.920875000214437
+    },
+    "correlation": {
+      "runs": 0,
+      "avg_duration_ms": 0.0,
+      "p95_duration_ms": 0.0,
+      "avg_throughput_eps": 0.0,
+      "max_duration_ms": 0.0
+    }
+  },
+  "results": [
+    {
+      "input_file": "/workspaces/backend/ingestion/assets/Wednesday-workingHours.micro.csv",
+      "iteration": 1,
+      "parse": {
+        "stage": "parse",
+        "duration_ms": 11.920875000214437,
+        "throughput_eps": 41943.229837659215,
+        "entries": 500
+      },
+      "correlation": null
+    },
+    {
+      "input_file": "/workspaces/backend/ingestion/assets/Wednesday-workingHours.micro.csv",
+      "iteration": 2,
+      "parse": {
+        "stage": "parse",
+        "duration_ms": 5.38179199975275,
+        "throughput_eps": 92905.85738411499,
+        "entries": 500
+      },
+      "correlation": null
+    }
+  ]
+}

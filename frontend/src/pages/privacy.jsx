@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import '../css/homepage.css';
 import '../css/privacy.css';
 
 const dataCategories = [
@@ -60,21 +61,34 @@ const userResponsibilities = [
 
 function PrivacyPage() {
   return (
-    <section className="panel privacy-page" aria-labelledby="privacy-title">
-      <header className="privacy-hero">
-        <p className="privacy-kicker">Privacy</p>
-        <h1 id="privacy-title">Privacy and Data Handling in AegisFA</h1>
-        <p>
-          This page describes how project data is handled across ingestion, analysis, storage, and support workflows.
-          It is written to reflect the current codebase behavior and operational architecture.
-        </p>
-      </header>
+    <div className="hp privacy-shell">
 
-      <section className="privacy-section" aria-labelledby="categories-title">
-        <h2 id="categories-title">Data Categories Processed</h2>
-        <div className="privacy-grid">
+      {/* Hero */}
+      <section className="hp-hero">
+        <div className="hp-hero-inner">
+          <p className="hp-kicker">Privacy</p>
+          <h1 className="hp-hero-title">
+            Privacy and Data Handling in AegisFA
+          </h1>
+          <p className="hp-hero-sub">
+            This page describes how project data is handled across ingestion, analysis, storage, and support workflows. It reflects the current codebase behavior and operational architecture.
+          </p>
+        </div>
+        <div className="hp-hero-glow" aria-hidden="true" />
+      </section>
+
+      {/* Data Categories */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Data Scope</p>
+          <h2>Data Categories Processed</h2>
+        </header>
+      </section>
+
+      <section>
+        <div className="hp-why-grid privacy-cat-grid">
           {dataCategories.map((item) => (
-            <article className="privacy-card" key={item.title}>
+            <article className="hp-why-card" key={item.title}>
               <h3>{item.title}</h3>
               <p>{item.details}</p>
             </article>
@@ -82,29 +96,49 @@ function PrivacyPage() {
         </div>
       </section>
 
-      <section className="privacy-section" aria-labelledby="purposes-title">
-        <h2 id="purposes-title">Why Data Is Processed</h2>
-        <ul className="privacy-list">
-          {processingPurposes.map((purpose) => (
-            <li key={purpose}>{purpose}</li>
+      {/* Processing Purposes */}
+      <section className="hp-stats">
+        <header className="hp-section-header" style={{ marginBottom: 'var(--spacing-lg)' }}>
+          <p className="hp-kicker">Purpose</p>
+          <h2>Why Data Is Processed</h2>
+        </header>
+        <div className="privacy-list-grid">
+          {processingPurposes.map((purpose, i) => (
+            <div key={i} className="privacy-list-item">
+              <span className="privacy-list-num">{String(i + 1).padStart(2, '0')}</span>
+              <p>{purpose}</p>
+            </div>
           ))}
-        </ul>
+        </div>
       </section>
 
-      <section className="privacy-section" aria-labelledby="controls-title">
-        <h2 id="controls-title">Security and Access Controls</h2>
-        <ul className="privacy-list">
-          {controls.map((control) => (
-            <li key={control}>{control}</li>
+      {/* Controls */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Safeguards</p>
+          <h2>Security and Access Controls</h2>
+        </header>
+        <div className="hp-why-grid privacy-controls-grid">
+          {controls.map((control, i) => (
+            <article key={i} className="hp-why-card">
+              <p>{control}</p>
+            </article>
           ))}
-        </ul>
+        </div>
       </section>
 
-      <section className="privacy-section" aria-labelledby="third-party-title">
-        <h2 id="third-party-title">Third-Party Services</h2>
-        <div className="privacy-third-party-grid">
+      {/* Third Parties */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Integrations</p>
+          <h2>Third-Party Services</h2>
+        </header>
+      </section>
+
+      <section>
+        <div className="privacy-third-grid">
           {thirdParties.map((service) => (
-            <article className="privacy-third-party-card" key={service.name}>
+            <article className="hp-feature-card" key={service.name}>
               <h3>{service.name}</h3>
               <p>{service.role}</p>
             </article>
@@ -112,27 +146,33 @@ function PrivacyPage() {
         </div>
       </section>
 
-      <section className="privacy-section" aria-labelledby="responsibilities-title">
-        <h2 id="responsibilities-title">Operator Responsibilities</h2>
-        <ul className="privacy-list">
-          {userResponsibilities.map((item) => (
-            <li key={item}>{item}</li>
+      {/* Responsibilities */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Your Role</p>
+          <h2>Operator Responsibilities</h2>
+        </header>
+        <div className="hp-why-grid privacy-resp-grid">
+          {userResponsibilities.map((item, i) => (
+            <article key={i} className="hp-why-card">
+              <p>{item}</p>
+            </article>
           ))}
-        </ul>
-      </section>
-
-      <section className="privacy-section privacy-cta" aria-labelledby="privacy-next-title">
-        <h2 id="privacy-next-title">Need Clarification?</h2>
-        <p>
-          For policy clarifications or incident-specific concerns, use the Support and Contact pages with your request ID and relevant endpoint context.
-        </p>
-        <div className="privacy-actions">
-          <Link className="privacy-btn primary" to="/support">Open Support</Link>
-          <Link className="privacy-btn secondary" to="/contact">Open Contact</Link>
-          <Link className="privacy-btn secondary" to="/about">Project Overview</Link>
         </div>
       </section>
-    </section>
+
+      {/* CTA */}
+      <section className="hp-cta">
+        <h2>Need Clarification?</h2>
+        <p>For policy clarifications or incident-specific concerns, use the Support and Contact pages with your request ID and relevant endpoint context.</p>
+        <div className="hp-hero-actions">
+          <Link to="/support" className="hp-btn hp-btn-primary">Open Support</Link>
+          <Link to="/contact" className="hp-btn hp-btn-secondary">Open Contact</Link>
+          <Link to="/about" className="hp-btn hp-btn-secondary">Project Overview</Link>
+        </div>
+      </section>
+
+    </div>
   );
 }
 

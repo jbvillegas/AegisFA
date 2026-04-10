@@ -5,8 +5,8 @@ import os
 from typing import Any
 
 ENCODINGS_TO_TRY = ("utf-8-sig", "utf-8", "utf-16", "cp1252", "latin-1")
-MAX_BYTES = 10 * 1024 * 1024
-MAX_ROWS = 200_000
+MAX_BYTES = 110 * 1024 * 1024
+MAX_ROWS = 500_000
 
 def _decode_bytes(file_bytes: bytes) -> tuple[str, str]:
     if len(file_bytes) > MAX_BYTES:

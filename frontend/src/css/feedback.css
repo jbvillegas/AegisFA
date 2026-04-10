@@ -1,0 +1,190 @@
+/* Shell width */
+.feedback-shell {
+  max-width: 1200px;
+  gap: clamp(1.5rem, 3.5vw, 2.25rem);
+}
+
+/* ── Feedback form ── */
+.fb-form {
+  display: grid;
+  gap: var(--spacing-md);
+  padding: clamp(1.25rem, 3vw, 1.75rem);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(20, 31, 46, 0.92), rgba(13, 20, 30, 0.96));
+  box-shadow: var(--shadow-sm);
+}
+
+.fb-form .field {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.fb-form .field-label {
+  font-size: 0.93rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-color);
+}
+
+.fb-form select,
+.fb-form textarea {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-color);
+  padding: 0.9rem 1rem;
+  font-size: 0.95rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.fb-form textarea {
+  resize: vertical;
+  min-height: 120px;
+  line-height: 1.5;
+  font-family: inherit;
+}
+
+.fb-form select:focus,
+.fb-form textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(103, 132, 177, 0.15);
+  outline: none;
+}
+
+.fb-form .upload-submit {
+  justify-self: start;
+  min-width: 11rem;
+  padding: 0.85rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  color: #09111b;
+  font-weight: var(--font-weight-semibold);
+  font-size: 0.95rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.fb-form .upload-submit:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(103, 132, 177, 0.3);
+}
+
+/* ── Status messages ── */
+.feedback-shell .jobs-state {
+  font-size: 0.92rem;
+  color: var(--muted-color);
+}
+
+.feedback-shell .jobs-state-error {
+  color: var(--danger-text);
+}
+
+.feedback-shell .upload-feedback {
+  padding: 0.85rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.92rem;
+}
+
+.feedback-shell .upload-feedback.error {
+  border: 1px solid rgba(217, 123, 123, 0.3);
+  background: rgba(217, 123, 123, 0.08);
+  color: var(--danger-text);
+}
+
+.feedback-shell .upload-feedback.success {
+  border: 1px solid rgba(124, 184, 166, 0.28);
+  background: rgba(124, 184, 166, 0.08);
+  color: #c8eee3;
+}
+
+/* ── Feedback history panel ── */
+.fb-history {
+  display: grid;
+  gap: 0.85rem;
+  padding: clamp(1.15rem, 2.5vw, 1.5rem);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(20, 31, 46, 0.92), rgba(13, 20, 30, 0.96));
+  box-shadow: var(--shadow-sm);
+  transition: border-color 400ms ease;
+}
+
+.fb-history:hover {
+  border-color: var(--border-strong);
+}
+
+.fb-history h2 {
+  font-family: var(--font-family);
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.fb-history .panel-muted {
+  font-size: 0.92rem;
+  color: var(--muted-color);
+}
+
+.fb-history .feedback-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+}
+
+.fb-history .feedback-item {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 400ms ease;
+}
+
+.fb-history .feedback-item:hover {
+  border-color: var(--border-strong);
+}
+
+.fb-history .finding-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.fb-history .finding-title {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-color);
+}
+
+.fb-history .severity-pill {
+  padding: 0.2rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.76rem;
+  font-family: var(--font-mono);
+  color: var(--muted-color);
+  white-space: nowrap;
+}
+
+.fb-history .finding-summary {
+  font-size: 0.92rem;
+  color: var(--muted-color);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  .fb-form .upload-submit {
+    width: 100%;
+  }
+
+  .fb-history .finding-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

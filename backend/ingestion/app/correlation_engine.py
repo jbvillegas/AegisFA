@@ -10,12 +10,26 @@ from .timestamp_utils import parse_timestamp as _parse_timestamp
 
 logger = structlog.get_logger(__name__)
 
+_MAX_REGEX_PATTERN_LEN = 500
+
+
+def _safe_regex_match(pattern: str, text: str) -> bool:
+    """Execute a regex match with length limit and error handling."""
+    if not pattern or len(pattern) > _MAX_REGEX_PATTERN_LEN:
+        return False
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE)
+        return bool(compiled.search(text))
+    except re.error:
+        return False
+
+
 _OPS = {
     "eq": lambda val, rule_val: val == rule_val,
     "neq": lambda val, rule_val: val != rule_val,
     "in": lambda val, rule_val: val in rule_val,
     "contains": lambda val, rule_val: rule_val in str(val) if val else False,
-    "regex": lambda val, rule_val: bool(re.search(rule_val, str(val))) if val else False,
+    "regex": lambda val, rule_val: _safe_regex_match(rule_val, str(val)) if val else False,
     "exists": lambda val, _: val is not None,
 }
 
@@ -420,7 +434,7 @@ def _evaluate_threshold(logic: dict, entries: list[dict]) -> Optional[dict]:
     group_by = logic.get("group_by", [])
     threshold = logic.get("threshold", 1)
     window = logic.get("window_seconds")
-    base_conf = logic.get("base_confidence", 0.7)
+    base_conf = logic.get("base_confidence", 0.75)
 
     matched = _filter_entries(entries, filters)
     if not matched:
@@ -452,7 +466,7 @@ def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
     steps = logic.get("steps", [])
     group_by = logic.get("group_by", [])
     window = logic.get("window_seconds")
-    base_conf = logic.get("base_confidence", 0.8)
+    base_conf = logic.get("base_confidence", 0.85)
 
     if not steps:
         return None
@@ -520,7 +534,7 @@ def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> Optional[dict]
     distinct_field = logic.get("distinct_field", "")
     distinct_threshold = logic.get("distinct_threshold", 2)
     window = logic.get("window_seconds")
-    base_conf = logic.get("base_confidence", 0.7)
+    base_conf = logic.get("base_confidence", 0.75)
 
     matched = _filter_entries(entries, filters)
     if not matched:
@@ -552,7 +566,7 @@ def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> Optional[dict]
 
 def _evaluate_existence(logic: dict, entries: list[dict]) -> Optional[dict]:
     filters = logic.get("filter", [])
-    base_conf = logic.get("base_confidence", 0.7)
+    base_conf = logic.get("base_confidence", 0.75)
 
     matched = _filter_entries(entries, filters)
     if not matched:
@@ -570,7 +584,7 @@ def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
     filters = logic.get("filter", [])
     group_by = logic.get("group_by", [])
     rate_per_minute = logic.get("rate_per_minute", 10)
-    base_conf = logic.get("base_confidence", 0.7)
+    base_conf = logic.get("base_confidence", 0.75)
 
     matched = _filter_entries(entries, filters)
     if not matched:

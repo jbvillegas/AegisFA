@@ -1,0 +1,256 @@
+/* Shell width */
+.workspace-shell {
+  max-width: 1120px;
+  gap: clamp(1.5rem, 3.5vw, 2.25rem);
+}
+
+/* ── Form grid ── */
+.workspace-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-lg);
+}
+
+.workspace-form-grid .field {
+  display: grid;
+  gap: 0.55rem;
+  padding: clamp(1rem, 2vw, 1.25rem);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(20, 31, 46, 0.92), rgba(13, 20, 30, 0.96));
+  box-shadow: var(--shadow-sm);
+  transition: border-color 400ms ease;
+}
+
+.workspace-form-grid .field:hover {
+  border-color: var(--border-strong);
+}
+
+.workspace-form-grid .field-label {
+  font-size: 0.93rem;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-color);
+}
+
+.workspace-form-grid .field input,
+.workspace-form-grid .field select {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-color);
+  padding: 0.9rem 1rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.workspace-form-grid .field input:focus,
+.workspace-form-grid .field select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(103, 132, 177, 0.15);
+  outline: none;
+}
+
+.workspace-form-grid .field input::placeholder {
+  color: rgba(155, 169, 187, 0.72);
+}
+
+.workspace-form-grid .upload-submit {
+  justify-self: start;
+  min-width: 11rem;
+  padding: 0.85rem 1.2rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+  color: #09111b;
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--transition), box-shadow var(--transition);
+}
+
+.workspace-form-grid .upload-submit:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(103, 132, 177, 0.3);
+}
+
+/* ── Tables ── */
+.workspace-shell .jobs-feed {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(20, 31, 46, 0.6), rgba(13, 20, 30, 0.8));
+  box-shadow: var(--shadow-sm);
+  overflow-x: auto;
+}
+
+.workspace-shell .jobs-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 0;
+}
+
+.workspace-shell .jobs-table thead th {
+  text-align: left;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-family: var(--font-mono);
+  color: var(--muted-color);
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.workspace-shell .jobs-table tbody td {
+  padding: 0.85rem 0.85rem;
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: top;
+  color: var(--text-color);
+  font-size: 0.9rem;
+}
+
+.workspace-shell .jobs-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.workspace-shell .jobs-table tbody tr {
+  transition: background 300ms ease;
+}
+
+.workspace-shell .jobs-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.workspace-shell .jobs-table select {
+  width: 100%;
+  min-width: 140px;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: rgba(16, 21, 30, 0.64);
+  color: var(--text-color);
+}
+
+/* ── Workspace section panels ── */
+.ws-section {
+  display: grid;
+  gap: 0.85rem;
+  padding: clamp(1.15rem, 2.5vw, 1.5rem);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: linear-gradient(180deg, rgba(20, 31, 46, 0.92), rgba(13, 20, 30, 0.96));
+  box-shadow: var(--shadow-sm);
+  transition: border-color 400ms ease;
+}
+
+.ws-section:hover {
+  border-color: var(--border-strong);
+}
+
+.ws-section h2 {
+  font-family: var(--font-family);
+  font-size: 1.15rem;
+  letter-spacing: -0.02em;
+}
+
+.ws-section .panel-muted {
+  font-size: 0.92rem;
+  color: var(--muted-color);
+}
+
+.ws-section .feedback-list {
+  display: grid;
+  gap: 0.75rem;
+  list-style: none;
+}
+
+.ws-section .feedback-item {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 400ms ease;
+}
+
+.ws-section .feedback-item:hover {
+  border-color: var(--border-strong);
+}
+
+.ws-section .finding-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.ws-section .finding-title {
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-color);
+}
+
+.ws-section .severity-pill {
+  padding: 0.2rem 0.58rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.76rem;
+  font-family: var(--font-mono);
+  color: var(--muted-color);
+  white-space: nowrap;
+}
+
+.ws-section .finding-summary {
+  font-size: 0.92rem;
+  color: var(--muted-color);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* ── Responsive ── */
+@media (max-width: 960px) {
+  .workspace-form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .workspace-shell .jobs-table,
+  .workspace-shell .jobs-table tbody,
+  .workspace-shell .jobs-table thead,
+  .workspace-shell .jobs-table tr,
+  .workspace-shell .jobs-table td,
+  .workspace-shell .jobs-table th {
+    display: block;
+    width: 100%;
+  }
+
+  .workspace-shell .jobs-table thead {
+    display: none;
+  }
+
+  .workspace-shell .jobs-table tbody tr {
+    padding: 0.85rem;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .workspace-shell .jobs-table tbody tr + tr {
+    margin-top: 0.75rem;
+  }
+
+  .workspace-shell .jobs-table tbody td {
+    padding: 0.4rem 0;
+    border-bottom: none;
+  }
+
+  .workspace-form-grid .upload-submit {
+    width: 100%;
+  }
+
+  .ws-section .finding-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

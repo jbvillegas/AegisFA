@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../client.js';
 import SearchBar from './search-bar.jsx';
 import '../css/navbar.css';
@@ -9,6 +9,10 @@ function Navbar() {
 	const [user, setUser] = useState(null);
 	const [isDropdownOpen, setIsDropdownOpen] = useState(false);
 	const dropdownRef = useRef(null);
+	const userRole = user?.app_metadata?.role || user?.user_metadata?.role || 'user';
+	const location = useLocation();
+	const isLoginPage = location.pathname === '/login';
+	const navigate = useNavigate();
 
 	useEffect(() => {
 		// Check current session and get user data
@@ -61,6 +65,7 @@ function Navbar() {
 	const handleLogout = async () => {
 		await supabase.auth.signOut();
 		setIsDropdownOpen(false);
+		navigate('/login', { replace: true });
 	};
 
 	const getProfileImage = () => {
@@ -122,6 +127,20 @@ function Navbar() {
 									Dashboard
 								</NavLink>
 								<NavLink
+									to="/workspace"
+									className={({ isActive }) => `dropdown-item ${isActive ? 'active' : ''}`}
+									onClick={handleNavigate}
+								>
+									Workspace
+								</NavLink>
+								<NavLink
+									to="/feedback"
+									className={({ isActive }) => `dropdown-item ${isActive ? 'active' : ''}`}
+									onClick={handleNavigate}
+								>
+									Feedback
+								</NavLink>
+								<NavLink
 									to="/about"
 									className={({ isActive }) => `dropdown-item ${isActive ? 'active' : ''}`}
 									onClick={handleNavigate}
@@ -142,13 +161,15 @@ function Navbar() {
 								>
 									Contact
 								</NavLink>
-								<NavLink
-									to="/admin"
-									className={({ isActive }) => `dropdown-item ${isActive ? 'active' : ''}`}
-									onClick={handleNavigate}
-								>
-									Admin
-								</NavLink>
+								{userRole === 'admin' && (
+									<NavLink
+										to="/admin"
+										className={({ isActive }) => `dropdown-item ${isActive ? 'active' : ''}`}
+										onClick={handleNavigate}
+									>
+										Admin
+									</NavLink>
+								)}
 									                                                <div className="dropdown-divider"></div>
 								<button 
 									onClick={handleLogout} 
@@ -161,20 +182,22 @@ function Navbar() {
 					</div>
 					</div>
 				) : (
-					<>
-						<NavLink to="/about" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
-							About
-						</NavLink>
-						<NavLink to="/support" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
-							Support
-						</NavLink>
-						<NavLink to="/contact" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
-							Contact
-						</NavLink>
-						<NavLink to="/login" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
-							Login
-						</NavLink>
-					</>
+					!isLoginPage && (
+						<>
+							<NavLink to="/about" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
+								About
+							</NavLink>
+							<NavLink to="/support" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
+								Support
+							</NavLink>
+							<NavLink to="/contact" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
+								Contact
+							</NavLink>
+							<NavLink to="/login" className={({ isActive }) => (isActive ? 'navbar-link active' : 'navbar-link')}>
+								Login
+							</NavLink>
+						</>
+					)
 				)}
 		        
 		      </div>

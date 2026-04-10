@@ -36,7 +36,7 @@ class LogClassifier: #LABELS
     def __init__(self):
         self.model = None
         self.base_model = None
-        self.vectorizer = TfidfVectorizer(max_features=500, ngram_range=(1, 2))
+        self.vectorizer = TfidfVectorizer(max_features=800, ngram_range=(1, 2))
         self.label_encoder = LabelEncoder()
         self.label_encoder.fit(self.LOG_CATEGORIES)
         self.is_trained = False
@@ -120,8 +120,8 @@ class LogClassifier: #LABELS
         
         # Train Random Forest
         self.base_model = RandomForestClassifier(
-            n_estimators=100,
-            max_depth=20,
+            n_estimators=150,
+            max_depth=25,
             random_state=42,
             n_jobs=-1
         )

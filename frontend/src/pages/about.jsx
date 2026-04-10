@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import '../css/homepage.css';
 import '../css/about.css';
 
 const platformCapabilities = [
@@ -35,11 +36,11 @@ const platformCapabilities = [
 ];
 
 const workflowSteps = [
-  'Collect logs from supported sources and upload into an org-scoped context.',
-  'Parse and normalize events, then persist records in Supabase storage and tables.',
-  'Run correlation and model-assisted classification to identify suspicious patterns.',
-  'Generate structured analysis with threat level, findings, timeline, and remediation guidance.',
-  'Expose results through dashboard views, timeline endpoints, and investigation pages.',
+  { num: '01', text: 'Collect logs from supported sources and upload into an org-scoped context.' },
+  { num: '02', text: 'Parse and normalize events, then persist records in Supabase storage and tables.' },
+  { num: '03', text: 'Run correlation and model-assisted classification to identify suspicious patterns.' },
+  { num: '04', text: 'Generate structured analysis with threat level, findings, timeline, and remediation guidance.' },
+  { num: '05', text: 'Expose results through dashboard views, timeline endpoints, and investigation pages.' },
 ];
 
 const backendHighlights = [
@@ -51,49 +52,90 @@ const backendHighlights = [
 
 function AboutPage() {
   return (
-    <section className="panel about-page" aria-labelledby="about-title">
-      <header className="about-hero">
-        <p className="about-kicker">About AegisFA</p>
-        <h1 id="about-title">Comprehensive Security Log Analysis for Investigation Teams</h1>
-        <p>
-          AegisFA is an end-to-end security analytics platform built to help SOC and incident response teams move from raw telemetry to actionable decisions.
-          The project combines ingestion, correlation, machine-assisted analysis, MITRE mapping, and timeline reconstruction in a single workflow.
-        </p>
-      </header>
+    <div className="hp about-shell">
 
-      <section className="about-section" aria-labelledby="platform-capabilities-title">
-        <h2 id="platform-capabilities-title">Platform Capabilities</h2>
-        <div className="about-capability-grid">
-          {platformCapabilities.map((capability) => (
-            <article key={capability.title} className="about-card">
-              <h3>{capability.title}</h3>
-              <p>{capability.description}</p>
+      {/* Hero */}
+      <section className="hp-hero">
+        <div className="hp-hero-inner">
+          <p className="hp-kicker">About AegisFA</p>
+          <h1 className="hp-hero-title">
+            Comprehensive Security Log Analysis for Investigation Teams
+          </h1>
+          <p className="hp-hero-sub">
+            AegisFA is an end-to-end security analytics platform built to help SOC and incident response teams move from raw telemetry to actionable decisions. The project combines ingestion, correlation, machine-assisted analysis, MITRE mapping, and timeline reconstruction in a single workflow.
+          </p>
+          <div className="hp-hero-actions">
+            <Link to="/dashboard" className="hp-btn hp-btn-primary">Open Dashboard</Link>
+            <Link to="/support" className="hp-btn hp-btn-secondary">Visit Support</Link>
+          </div>
+        </div>
+        <div className="hp-hero-glow" aria-hidden="true" />
+      </section>
+
+      {/* Platform Capabilities */}
+      <section>
+        <header className="hp-section-header">
+          <p className="hp-kicker">Platform Capabilities</p>
+          <h2>Everything Analysts Need in One Workflow</h2>
+          <p className="hp-section-sub">
+            From log ingestion to remediation guidance, AegisFA covers the full investigation lifecycle.
+          </p>
+        </header>
+      </section>
+
+      <section>
+        <div className="hp-features-grid about-cap-grid">
+          {platformCapabilities.map((cap) => (
+            <article key={cap.title} className="hp-feature-card">
+              <h3>{cap.title}</h3>
+              <p>{cap.description}</p>
             </article>
           ))}
         </div>
       </section>
 
-      <section className="about-section" aria-labelledby="workflow-title">
-        <h2 id="workflow-title">How the System Works</h2>
-        <ol className="about-workflow-list">
+      {/* How It Works */}
+      <section className="hp-stats">
+        <header className="hp-section-header" style={{ marginBottom: 'var(--spacing-lg)' }}>
+          <p className="hp-kicker">Investigation Pipeline</p>
+          <h2>How the System Works</h2>
+        </header>
+        <div className="about-steps">
           {workflowSteps.map((step) => (
-            <li key={step}>{step}</li>
+            <div key={step.num} className="about-step">
+              <span className="about-step-num">{step.num}</span>
+              <p>{step.text}</p>
+            </div>
           ))}
-        </ol>
+        </div>
       </section>
 
-      <section className="about-section" aria-labelledby="architecture-title">
-        <h2 id="architecture-title">Architecture Highlights</h2>
-        <ul className="about-bullet-list">
-          {backendHighlights.map((highlight) => (
-            <li key={highlight}>{highlight}</li>
+      {/* Architecture */}
+      <section className="hp-why">
+        <header className="hp-section-header">
+          <p className="hp-kicker">Under the Hood</p>
+          <h2>Architecture Highlights</h2>
+        </header>
+        <div className="hp-why-grid about-arch-grid">
+          {backendHighlights.map((highlight, i) => (
+            <article key={i} className="hp-why-card">
+              <p>{highlight}</p>
+            </article>
           ))}
-        </ul>
+        </div>
       </section>
 
-      
-      
-    </section>
+      {/* CTA */}
+      <section className="hp-cta">
+        <h2>Ready to Explore the Platform?</h2>
+        <p>Upload your first log file and see the full analysis pipeline in action.</p>
+        <div className="hp-hero-actions">
+          <Link to="/dashboard" className="hp-btn hp-btn-primary">Open Dashboard</Link>
+          <Link to="/contact" className="hp-btn hp-btn-secondary">Get in Touch</Link>
+        </div>
+      </section>
+
+    </div>
   );
 }
 

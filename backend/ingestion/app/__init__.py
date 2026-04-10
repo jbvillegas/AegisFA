@@ -8,7 +8,7 @@ supabase_client: Client = None
 def create_app():
     app = Flask(__name__)
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
-    app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
+    app.config['MAX_CONTENT_LENGTH'] = 120 * 1024 * 1024
     supabase_url = os.getenv('SUPABASE_URL')
     supabase_service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
     if not supabase_url or not supabase_service_key:
