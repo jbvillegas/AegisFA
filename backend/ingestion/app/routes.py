@@ -1985,9 +1985,9 @@ def train_rf_model():
         return _error_response('dataset_path is required', 400, 'VALIDATION_ERROR')
 
     random_seed = int(payload.get('seed', 42))
-    min_samples_per_class = int(payload.get('min_samples_per_class', 50))
+    min_samples_per_class = int(payload.get('min_samples_per_class', 5))
     max_rows = payload.get('max_rows')
-    max_rows = int(max_rows) if max_rows is not None else 150000
+    max_rows = int(max_rows) if max_rows is not None else 120000
     requested_by = _auth_user_id() or payload.get('requested_by')
     dataset_name = payload.get('dataset_name', 'CICIDS2019')
     model_label = _dataset_to_model_label(dataset_name)
