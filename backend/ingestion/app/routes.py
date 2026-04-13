@@ -105,6 +105,45 @@ def _resolve_bootstrap_org_id() -> str | None:
     return None
 
 
+# New endpoint: GET /analysis-jobs
+@main.route('/analysis-jobs', methods=['GET'])
+def list_analysis_jobs():
+    """Return a list of analysis jobs filtered by org_id and limited by 'limit' query param."""
+    log = _request_logger(route='list_analysis_jobs')
+    role_error = _require_roles('admin', 'analyst', 'viewer')
+    if role_error:
+        return role_error
+
+    org_id = request.args.get('org_id')
+    limit = request.args.get('limit', 10)
+    try:
+        limit = int(limit)
+        if limit <= 0 or limit > 100:
+            limit = 10
+    except Exception:
+        limit = 10
+
+    if not org_id or not _is_uuid(org_id):
+        return _error_response('org_id is required and must be a valid UUID', 400, 'VALIDATION_ERROR')
+
+    try:
+        jobs_result = supabase_client.table('analysis_jobs') \
+            .select('*') \
+            .eq('org_id', org_id) \
+            .order('created_at', desc=True) \
+            .limit(limit) \
+            .execute()
+        jobs = jobs_result.data or []
+    except Exception:
+        log.exception('Failed to fetch analysis jobs')
+        return _error_response('Failed to fetch analysis jobs', 500, 'DATABASE_ERROR', retryable=True)
+
+    return jsonify({
+        'jobs': _serialize_timestamps(jobs),
+        'request_id': _get_request_id(),
+    }), 200
+
+
 def _dataset_to_model_label(dataset_name: str | None) -> str:
     raw_value = str(dataset_name or '').strip().lower()
     if not raw_value:
@@ -1946,9 +1985,9 @@ def train_rf_model():
         return _error_response('dataset_path is required', 400, 'VALIDATION_ERROR')
 
     random_seed = int(payload.get('seed', 42))
-    min_samples_per_class = int(payload.get('min_samples_per_class', 5))
+    min_samples_per_class = int(payload.get('min_samples_per_class', 50))
     max_rows = payload.get('max_rows')
-    max_rows = int(max_rows) if max_rows is not None else 120000
+    max_rows = int(max_rows) if max_rows is not None else 150000
     requested_by = _auth_user_id() or payload.get('requested_by')
     dataset_name = payload.get('dataset_name', 'CICIDS2019')
     model_label = _dataset_to_model_label(dataset_name)
