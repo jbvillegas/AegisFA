@@ -55,7 +55,7 @@ function HomePage() {
             <div className="hp-feature-icon hp-feature-icon-ingest" aria-hidden="true" />
             <h3>Ingest &amp; Classify</h3>
             <p>
-              Upload CSV, JSON, or text logs. The RF classifier categorizes every entry across 11+ attack classes with calibrated probability scores.
+              Upload CSV, JSON, or text logs. The RF classifier categorizes every entry across 25+ attack classes with calibrated probability scores.
             </p>
           </article>
           <article className="hp-feature-card">
