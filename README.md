@@ -30,6 +30,7 @@
 - [Project Structure](#project-structure)
 - [Known Limitations](#known-limitations)
 - [Future Work](#future-work)
+- [Assets](#assets)
 - [License](#license)
 
 ---
@@ -463,6 +464,14 @@ AegisFA/
 - **Export** — PDF/JSON/CSV analysis reports and forensic documentation
 - **Compliance reporting** — PCI DSS, HIPAA, SOC 2 templates
 - **Mobile/lightweight client** — read-only mobile view for on-call analysts
+
+---
+## Assets
+
+![AegisFA Dashboard](frontend/src/assets/Dashboard1.jpg)
+![AegisFA Dashboard](frontend/src/assets/Dashboard2.jpg)
+![AegisFA Dashboard](frontend/src/assets/Dashboard3.jpg)
+![AegisFA Dashboard](frontend/src/assets/Dashboard4.jpg)
 
 ---
 
