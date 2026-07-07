@@ -1,0 +1,22 @@
+
+- Background: #0b1118
+- Background Alt: #101826
+- Surface: rgba(15, 24, 36, 0.92)
+- Surface Elevated: rgba(20, 31, 46, 0.96)
+- Surface Soft: rgba(20, 31, 46, 0.72)
+- Border: rgba(154, 174, 197, 0.18)
+- Border Strong: rgba(154, 174, 197, 0.32)
+- Text: #ecf2f8
+- Muted: #9ba9bb
+- Accent: #87a2c8
+- Accent Strong: #6686b6
+- Accent Soft: rgba(103, 132, 177, 0.2)
+- Danger: #d97b7b
+- Danger Text: #f0b2b2
+- Danger Bright: #ff6b6b
+- Danger Bright Hover: #ff8787
+- Warning Text: #ffd8a8
+- Warning Border: rgba(237, 167, 113, 0.45)
+- Success: #7cb8a6
+- Success Text: #bce8dd
+
