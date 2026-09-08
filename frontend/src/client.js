@@ -9,6 +9,8 @@ const apiKey =
 	import.meta.env.REACT_APP_SUPABASE_ANON_KEY ||
 	'';
 
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
+
 if (!supabaseURL) {
 	throw new Error(
 		'Missing Supabase URL. Set VITE_SUPABASE_URL or REACT_APP_SUPABASE_URL in your env file.'
