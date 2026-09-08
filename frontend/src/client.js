@@ -17,7 +17,14 @@ if (!apiKey) {
 	);
 }
 
-export const supabase = createClient(supabaseURL, apiKey);
+export const supabase = createClient(supabaseURL, apiKey, {
+	auth: {
+		flowType: 'pkce',
+		detectSessionInUrl: true,
+		persistSession: true,
+		autoRefreshToken: true,
+	},
+});
 
 class HttpAuthError extends Error {
 	constructor(message, status) {
