@@ -1,9 +1,7 @@
 import json
 import os
 import re
-import torch
 from typing import Dict, List, Any
-from .service import load_model
 from .openai_client import get_openai_client
 
 class InsightsGenerator:
@@ -15,10 +13,13 @@ class InsightsGenerator:
         self.tokenizer = None
         self.provider = os.getenv("INSIGHTS_LLM_PROVIDER", "openai").strip().lower()
         self.openai_model = os.getenv("INSIGHTS_OPENAI_MODEL", "gpt-4o-mini")
-        self.allow_local_fallback = os.getenv("INSIGHTS_ALLOW_LOCAL_FALLBACK", "true").strip().lower() == "true"
+        default_fallback = "true" if os.getenv("APP_ENV", "development").strip().lower() == "development" else "false"
+        self.allow_local_fallback = os.getenv("INSIGHTS_ALLOW_LOCAL_FALLBACK", default_fallback).strip().lower() == "true"
     
     def _load_llm(self):
         if self.model is None or self.tokenizer is None:
+            from .service import load_model
+
             self.model, self.tokenizer = load_model()
 
     def _generate_with_openai(self, system_prompt: str, user_prompt: str, max_tokens: int = 512) -> str:
@@ -53,6 +54,8 @@ class InsightsGenerator:
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = self.tokenizer(text, return_tensors="pt")
         
+        import torch
+
         with torch.no_grad():
             outputs = self.model.generate(
                 **inputs,
