@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import SearchBar from '../components/search-bar.jsx';
-import { authenticatedFetch, supabase } from '../client.js';
+import { API_BASE_URL, authenticatedFetch, supabase } from '../client.js';
 import { usePersistentState } from '../hooks/use-persistent-state.js';
 import '../css/homepage.css';
 import '../css/admindashboard.css';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
 const SEVERITY_WEIGHT = {
 	critical: 4,

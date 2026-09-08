@@ -7,7 +7,6 @@ from .correlation_engine import run_correlation
 from .timeline_service import get_file_timeline, get_org_timeline, get_file_timeline_graph, get_org_timeline_graph
 from .storage import upload_file, download_file, upload_binary, download_binary, BUCKET_NAME
 from .log_classifier import get_classifier
-from .insights_generator import get_insights_generator
 from .kaggle import prepare_cicids2019_training_bundle
 from datetime import datetime, timezone
 from time import perf_counter
@@ -47,7 +46,7 @@ def _evict_expired_sessions():
     for sid in expired:
         del _upload_sessions[sid]
 
-_PUBLIC_ENDPOINTS = {'main.root'}
+_PUBLIC_ENDPOINTS = {'main.root', 'main.health'}
 
 
 def _request_json_dict() -> dict:
@@ -722,6 +721,8 @@ def _build_actionable_insights_payload(
             'details': rf_results[:50],
         }
 
+    from .insights_generator import get_insights_generator
+
     insights_generator = get_insights_generator()
     insights = insights_generator.generate_threat_insights(threats)
     incident_summary = insights_generator.generate_incident_summary(
@@ -1169,6 +1170,15 @@ def root():
         'service': 'AegisFA ingestion API',
         'status': 'ok',
         'message': 'Use the API endpoints under /ingest, /upload, /analysis, or /timeline.',
+        'request_id': _get_request_id(),
+    })
+
+
+@main.route('/health', methods=['GET'])
+def health():
+    return jsonify({
+        'service': 'AegisFA ingestion API',
+        'status': 'ok',
         'request_id': _get_request_id(),
     })
 

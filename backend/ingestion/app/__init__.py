@@ -1,26 +1,24 @@
 from flask import Flask
 from supabase import create_client, Client
-import os
 from .logging_config import setup_logging
+from .config import Settings
 
 supabase_client: Client = None
 
-def create_app():
+def create_app(settings: Settings | None = None):
+    settings = settings or Settings.from_env()
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
-    app.config['MAX_CONTENT_LENGTH'] = 120 * 1024 * 1024
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-    if not supabase_url or not supabase_service_key:
-        raise RuntimeError(
-            'Missing required environment variables: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. '
-            'Ensure backend/ingestion/.env is present or export these variables in your shell.'
-        )
+    app.config.from_mapping(
+        SECRET_KEY=settings.secret_key,
+        MAX_CONTENT_LENGTH=settings.max_content_length,
+        DEBUG=settings.debug,
+        SETTINGS=settings,
+    )
 
     global supabase_client
     supabase_client = create_client(
-        supabase_url,
-        supabase_service_key
+        settings.supabase_url,
+        settings.supabase_service_role_key,
     )
 
     from .routes import main
