@@ -1,12 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { authenticatedFetch, supabase } from '../client.js';
+import { API_BASE_URL, authenticatedFetch, supabase } from '../client.js';
 import { usePersistentState } from '../hooks/use-persistent-state.js';
 import '../css/homepage.css';
 import '../css/dashboard.css';
 import '../css/workspace.css';
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '');
 
 function getLocalOrgId(user) {
 	return (

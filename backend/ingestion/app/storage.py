@@ -2,6 +2,7 @@ import os
 import mimetypes
 import time
 from supabase import create_client
+from .config import Settings
 
 _supabase = None
 
@@ -13,9 +14,10 @@ UPLOAD_RETRY_BASE_DELAY_SECONDS = float(os.getenv("SUPABASE_UPLOAD_RETRY_BASE_DE
 def get_client():
     global _supabase 
     if _supabase is None:
+        settings = Settings.from_env()
         _supabase = create_client(
-            os.getenv("SUPABASE_URL"), 
-            os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            settings.supabase_url,
+            settings.supabase_service_role_key
         )
     return _supabase
 

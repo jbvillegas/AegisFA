@@ -1,6 +1,6 @@
 from supabase import create_client, Client
-import os
 from typing import Optional, Dict, List
+from .config import Settings
 
 class SupabaseDB:
     def __init__(self):
@@ -8,11 +8,11 @@ class SupabaseDB:
         self.init_client()
 
     def init_client(self):
-        url = os.getenv("SUPABASE_URL")
-        key = os.getenv("SUPABASE_KEY")
-        if not url or not key:
-            raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in environment variables.")
-        self.supabase = create_client(url, key)
+        settings = Settings.from_env()
+        self.supabase = create_client(
+            settings.supabase_url,
+            settings.supabase_service_role_key,
+        )
         print("Supabase client connected.")
 
     def save_log(self, source: str, raw_data: Dict, normalized_data: Dict, natural_language_summary: str, timestamp: str) -> Dict:
