@@ -6,3 +6,7 @@ COPY ingestion/requirements.txt /tmp/pip-tmp/
 
 RUN pip3 --disable-pip-version-check --no-cache-dir install -r /tmp/pip-tmp/requirements.txt \
    && rm -rf /tmp/pip-tmp
+
+WORKDIR /workspaces/backend/ingestion
+EXPOSE 5001
+CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "1", "--timeout", "120", "run:app"]
