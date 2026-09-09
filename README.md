@@ -1,6 +1,6 @@
 # AegisFA: AI-Powered Forensic Assistant for Security Operations Centers
 
-> **AegisFA** (Aegis Forensic Assistant) automates the full SOC incident analysis pipeline — from raw log ingestion through ML classification, rule-based correlation, MITRE ATT&CK mapping, and LLM-generated investigation guides — delivering analyst-ready intelligence in seconds instead of minutes.
+> **AegisFA** (Aegis Forensic Assistant) automates the full SOC incident analysis pipeline; from raw log ingestion through ML classification, rule-based correlation, MITRE ATT&CK mapping, and LLM-generated investigation guides, delivering analyst-ready intelligence in seconds instead of minutes.
 
 <p align="center">
   <img src="frontend/src/assets/A.png" alt="Project Logo" width="200" height="200">
