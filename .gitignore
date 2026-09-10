@@ -55,3 +55,7 @@ frontend/build/
 __pycache__/
 *.pyc
 *.pkl
+
+# Logs
+.log
+*.log
