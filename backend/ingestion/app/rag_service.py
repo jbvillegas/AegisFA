@@ -1,8 +1,8 @@
 import json
 import os
-from . import supabase_client
-from .openai_client import get_openai_client, get_embedding
 
+from . import supabase_client
+from .openai_client import get_embedding, get_openai_client
 
 MITRE_MATCH_THRESHOLD = float(os.getenv("MITRE_MATCH_THRESHOLD", "0.45"))
 MITRE_MIN_SIMILARITY = float(os.getenv("MITRE_MIN_SIMILARITY", "0.40"))
@@ -17,7 +17,11 @@ DDOS_FAMILY_PROFILE = {
     "supporting": [
         {"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
         {"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
-        {"id": "T1071", "name": "Application Layer Protocol", "tactic": "Command and Control"},
+        {
+            "id": "T1071",
+            "name": "Application Layer Protocol",
+            "tactic": "Command and Control",
+        },
     ],
     "hints": [
         "DNS amplification",
@@ -52,7 +56,6 @@ def _extract_key_indicators(log_entries: list[dict], limit: int = 24) -> list[st
         "process",
         "command",
         "protocol",
-        "destination_port",
         "flow_duration",
         "flow_bytes_s",
         "flow_packets_s",
@@ -75,7 +78,20 @@ def _extract_key_indicators(log_entries: list[dict], limit: int = 24) -> list[st
             if not key_norm:
                 continue
 
-            if key_norm not in interesting_keys and not any(token in key_norm for token in ("ip", "user", "port", "process", "command", "flow", "packet", "flag", "ratio")):
+            if key_norm not in interesting_keys and not any(
+                token in key_norm
+                for token in (
+                    "ip",
+                    "user",
+                    "port",
+                    "process",
+                    "command",
+                    "flow",
+                    "packet",
+                    "flag",
+                    "ratio",
+                )
+            ):
                 continue
 
             value_str = str(value or "").strip()
@@ -111,7 +127,9 @@ def _top_rf_categories(rf_context: dict | None, limit: int = 5) -> list[str]:
     return [f"{category}:{count}" for category, count in ordered[:limit] if count > 0]
 
 
-def _build_attack_family_hints(source_type: str, rf_context: dict | None, findings: list[dict]) -> list[str]:
+def _build_attack_family_hints(
+    source_type: str, rf_context: dict | None, findings: list[dict]
+) -> list[str]:
     hints: list[str] = []
     source_token = str(source_type or "").strip().lower()
     categories = " ".join(_top_rf_categories(rf_context, limit=5)).lower()
@@ -121,25 +139,44 @@ def _build_attack_family_hints(source_type: str, rf_context: dict | None, findin
         if isinstance(item, dict)
     ).lower()
 
-    if any(token in source_token for token in ("dns", "drdos", "ddos", "dos", "flow")) or any(
-        token in categories for token in ("drdos", "ddos", "dos")
-    ) or any(token in finding_text for token in ("dns", "amplification", "reflection", "denial of service", "udp flood")):
-        hints.extend([
-            f"MITRE ATT&CK {DDOS_FAMILY_PROFILE['primary']['id']} {DDOS_FAMILY_PROFILE['primary']['name']}",
-            *DDOS_FAMILY_PROFILE["hints"],
-        ])
+    if (
+        any(token in source_token for token in ("dns", "drdos", "ddos", "dos", "flow"))
+        or any(token in categories for token in ("drdos", "ddos", "dos"))
+        or any(
+            token in finding_text
+            for token in (
+                "dns",
+                "amplification",
+                "reflection",
+                "denial of service",
+                "udp flood",
+            )
+        )
+    ):
+        hints.extend(
+            [
+                f"MITRE ATT&CK {DDOS_FAMILY_PROFILE['primary']['id']} {DDOS_FAMILY_PROFILE['primary']['name']}",
+                *DDOS_FAMILY_PROFILE["hints"],
+            ]
+        )
 
-    if any(token in source_token for token in ("udp", "dns")) or any(token in categories for token in ("drdos_dns", "drdos_udp")):
-        hints.extend([
-            "high destination port variance",
-            "amplification source diversity",
-            "reflective traffic burst",
-        ])
+    if any(token in source_token for token in ("udp", "dns")) or any(
+        token in categories for token in ("drdos_dns", "drdos_udp")
+    ):
+        hints.extend(
+            [
+                "high destination port variance",
+                "amplification source diversity",
+                "reflective traffic burst",
+            ]
+        )
 
     return hints
 
 
-def _build_family_profile_text(source_type: str, rf_context: dict | None, findings: list[dict]) -> str:
+def _build_family_profile_text(
+    source_type: str, rf_context: dict | None, findings: list[dict]
+) -> str:
     hints = _build_attack_family_hints(source_type, rf_context, findings)
     if not hints:
         return ""
@@ -193,6 +230,7 @@ def _build_mitre_query_text(
 
     return "\n".join(query_parts)
 
+
 def _compact_log_entries(
     log_entries: list[dict],
     max_entries: int = 60,
@@ -220,13 +258,14 @@ def _compact_log_entries(
 
     return compacted
 
+
 def analyze_threats(
     log_entries: list[dict],
     source_type: str,
-    detections: list[dict] = None,
+    detections: list[dict] | None = None,
     rf_context: dict | None = None,
 ) -> dict:
-    
+
     client = get_openai_client()
     findings = _detect_threats(client, log_entries, source_type)
     mitre_context = _retrieve_mitre_techniques(
@@ -237,7 +276,11 @@ def analyze_threats(
         log_entries=log_entries,
     )
     summary_result = _generate_incident_summary(
-        client, log_entries, source_type, findings, mitre_context,
+        client,
+        log_entries,
+        source_type,
+        findings,
+        mitre_context,
         detections=detections,
     )
 
@@ -256,7 +299,9 @@ def analyze_threats(
         rf_risk_score=rf_risk_score,
     )
     llm_confidence = _clamp01(summary_result.get("confidence_score", 0.5))
-    retrieval_strength = _score_retrieval_strength(summary_result.get("mitre_techniques", []))
+    retrieval_strength = _score_retrieval_strength(
+        summary_result.get("mitre_techniques", [])
+    )
     correlation_strength = _score_correlation_evidence(detections)
     consistency_bonus = _compute_evidence_consistency_bonus(
         mitre_techniques=summary_result.get("mitre_techniques", []),
@@ -294,8 +339,11 @@ def analyze_threats(
         },
     }
 
+
 def _detect_threats(client, log_entries: list[dict], source_type: str) -> list[dict]:
-    compact_entries = _compact_log_entries(log_entries, max_entries=40, max_fields=14, max_value_len=100)
+    compact_entries = _compact_log_entries(
+        log_entries, max_entries=40, max_fields=14, max_value_len=100
+    )
     entries_json = json.dumps(compact_entries, default=str)
 
     system_prompt = (
@@ -329,12 +377,15 @@ def _detect_threats(client, log_entries: list[dict], source_type: str) -> list[d
         parsed = json.loads(response.choices[0].message.content)
         return parsed.get("threats", [])
     except (json.JSONDecodeError, IndexError):
-        return [{
-            "threat_type": "unknown",
-            "severity": "low",
-            "description": "Analysis could not parse model response.",
-        }]
-    
+        return [
+            {
+                "threat_type": "unknown",
+                "severity": "low",
+                "description": "Analysis could not parse model response.",
+            }
+        ]
+
+
 def _retrieve_mitre_techniques(
     findings: list[dict],
     source_type: str,
@@ -379,7 +430,6 @@ def _retrieve_mitre_techniques(
     raw_rows = result.data if result.data else []
     raw_rows.extend(family_rows)
 
-    deduped_rows = []
     seen_ids = set()
     filtered_rows = []
     for row in raw_rows:
@@ -422,34 +472,47 @@ def _merge_mitre_techniques(llm_techniques, mitre_context: list[dict]) -> list[d
         if not isinstance(item, dict):
             continue
 
-        technique_id = _normalize_technique_id(item.get("id") or item.get("technique_id"))
+        technique_id = _normalize_technique_id(
+            item.get("id") or item.get("technique_id")
+        )
         context = context_by_id.get(technique_id, {})
         if not technique_id:
-            technique_id = _normalize_technique_id(context.get("technique_id") or context.get("id"))
+            technique_id = _normalize_technique_id(
+                context.get("technique_id") or context.get("id")
+            )
 
-        merged.append({
-            "id": technique_id,
-            "technique_id": technique_id,
-            "name": item.get("name") or context.get("name") or "Unknown technique",
-            "tactic": item.get("tactic") or context.get("tactic"),
-            "relevance": item.get("relevance") or context.get("description") or "",
-            "similarity": item.get("similarity") or context.get("similarity") or context.get("similarity_score"),
-        })
+        merged.append(
+            {
+                "id": technique_id,
+                "technique_id": technique_id,
+                "name": item.get("name") or context.get("name") or "Unknown technique",
+                "tactic": item.get("tactic") or context.get("tactic"),
+                "relevance": item.get("relevance") or context.get("description") or "",
+                "similarity": item.get("similarity")
+                or context.get("similarity")
+                or context.get("similarity_score"),
+            }
+        )
 
     # Backfill with top context techniques if the LLM omitted them entirely.
     if not merged and mitre_context:
         for item in mitre_context[:5]:
-            technique_id = _normalize_technique_id(item.get("technique_id") or item.get("id"))
+            technique_id = _normalize_technique_id(
+                item.get("technique_id") or item.get("id")
+            )
             if not technique_id:
                 continue
-            merged.append({
-                "id": technique_id,
-                "technique_id": technique_id,
-                "name": item.get("name") or "Unknown technique",
-                "tactic": item.get("tactic"),
-                "relevance": item.get("description") or "",
-                "similarity": item.get("similarity") or item.get("similarity_score"),
-            })
+            merged.append(
+                {
+                    "id": technique_id,
+                    "technique_id": technique_id,
+                    "name": item.get("name") or "Unknown technique",
+                    "tactic": item.get("tactic"),
+                    "relevance": item.get("description") or "",
+                    "similarity": item.get("similarity")
+                    or item.get("similarity_score"),
+                }
+            )
 
     # Remove duplicates while preserving order.
     deduped = []
@@ -463,13 +526,14 @@ def _merge_mitre_techniques(llm_techniques, mitre_context: list[dict]) -> list[d
 
     return deduped
 
+
 def _generate_incident_summary(
     client,
     log_entries: list[dict],
     source_type: str,
     findings: list[dict],
     mitre_context: list[dict],
-    detections: list[dict] = None,
+    detections: list[dict] | None = None,
 ) -> dict:
 
     mitre_text = ""
@@ -498,7 +562,9 @@ def _generate_incident_summary(
 
     findings_text = json.dumps(findings[:15], indent=2, default=str)
     sample_entries = json.dumps(
-        _compact_log_entries(log_entries, max_entries=20, max_fields=12, max_value_len=80),
+        _compact_log_entries(
+            log_entries, max_entries=20, max_fields=12, max_value_len=80
+        ),
         default=str,
     )
 
@@ -542,9 +608,13 @@ def _generate_incident_summary(
 
     try:
         result = json.loads(response.choices[0].message.content)
-        merged_mitre = _merge_mitre_techniques(result.get("mitre_techniques", []), mitre_context)
+        merged_mitre = _merge_mitre_techniques(
+            result.get("mitre_techniques", []), mitre_context
+        )
         return {
-            "summary": result.get("summary", "Analysis completed but summary generation failed."),
+            "summary": result.get(
+                "summary", "Analysis completed but summary generation failed."
+            ),
             "attack_vector": result.get("attack_vector", "Unknown"),
             "timeline": result.get("timeline", []),
             "impacted_assets": result.get("impacted_assets", []),
@@ -566,6 +636,7 @@ def _generate_incident_summary(
                 "Update security policies",
             ],
         }
+
 
 def _determine_threat_level(findings: list[dict]) -> str:
     """Return the highest severity found across all findings."""
@@ -602,7 +673,9 @@ def _score_to_severity(score: int) -> str:
 def _max_detection_severity(detections: list[dict] | None) -> str:
     max_score = 0
     for detection in detections or []:
-        max_score = max(max_score, _severity_to_score(detection.get("severity", "none")))
+        max_score = max(
+            max_score, _severity_to_score(detection.get("severity", "none"))
+        )
     return _score_to_severity(max_score)
 
 
@@ -635,22 +708,42 @@ def _score_rf_risk(rf_context: dict | None) -> float:
                 benign_count += int(count or 0)
 
     non_benign_ratio = max(0.0, min(1.0, (total - benign_count) / total))
-    high_conf_total_ratio = max(0.0, min(1.0, (high_conf_anomaly + high_conf_security + high_conf_error) / total))
+    high_conf_total_ratio = max(
+        0.0,
+        min(1.0, (high_conf_anomaly + high_conf_security + high_conf_error) / total),
+    )
 
     # Severity-weighted category score: accounts for the actual threat weight
     # of each classified category, even when the model has few classes.
     _CATEGORY_THREAT_WEIGHT = {
-        "benign": 0.0, "normal": 0.0, "normal_traffic": 0.0,
-        "ddos": 0.95, "dos": 0.9, "bot": 0.9,
-        "infiltration": 0.95, "heartbleed": 0.95,
-        "drdos_dns": 0.9, "drdos_ldap": 0.9, "drdos_mssql": 0.9,
-        "drdos_ntp": 0.9, "drdos_netbios": 0.9, "drdos_snmp": 0.9,
-        "drdos_ssdp": 0.9, "drdos_udp": 0.9,
-        "web_bruteforce": 0.85, "web_xss": 0.85, "web_sql_injection": 0.85,
-        "ssh_patator": 0.8, "ftp_patator": 0.8, "portscan": 0.75,
-        "dos_hulk": 0.85, "dos_goldeneye": 0.85,
-        "dos_slowhttptest": 0.8, "dos_slowloris": 0.8,
-        "syn": 0.85, "udp_lag": 0.8,
+        "benign": 0.0,
+        "normal": 0.0,
+        "normal_traffic": 0.0,
+        "ddos": 0.95,
+        "dos": 0.9,
+        "bot": 0.9,
+        "infiltration": 0.95,
+        "heartbleed": 0.95,
+        "drdos_dns": 0.9,
+        "drdos_ldap": 0.9,
+        "drdos_mssql": 0.9,
+        "drdos_ntp": 0.9,
+        "drdos_netbios": 0.9,
+        "drdos_snmp": 0.9,
+        "drdos_ssdp": 0.9,
+        "drdos_udp": 0.9,
+        "web_bruteforce": 0.85,
+        "web_xss": 0.85,
+        "web_sql_injection": 0.85,
+        "ssh_patator": 0.8,
+        "ftp_patator": 0.8,
+        "portscan": 0.75,
+        "dos_hulk": 0.85,
+        "dos_goldeneye": 0.85,
+        "dos_slowhttptest": 0.8,
+        "dos_slowloris": 0.8,
+        "syn": 0.85,
+        "udp_lag": 0.8,
     }
     category_threat_score = 0.0
     if isinstance(by_category, dict) and total > 0:
@@ -662,15 +755,15 @@ def _score_rf_risk(rf_context: dict | None) -> float:
         category_threat_score = min(1.0, weighted_sum / total)
 
     score = (
-        (0.15 * average_confidence) +
-        (0.10 * critical_ratio) +
-        (0.06 * high_ratio) +
-        (0.03 * anomaly_ratio) +
-        (0.02 * security_ratio) +
-        (0.01 * error_ratio) +
-        (0.10 * non_benign_ratio) +
-        (0.05 * high_conf_total_ratio) +
-        (0.48 * category_threat_score)
+        (0.15 * average_confidence)
+        + (0.10 * critical_ratio)
+        + (0.06 * high_ratio)
+        + (0.03 * anomaly_ratio)
+        + (0.02 * security_ratio)
+        + (0.01 * error_ratio)
+        + (0.10 * non_benign_ratio)
+        + (0.05 * high_conf_total_ratio)
+        + (0.48 * category_threat_score)
     )
     return max(0.0, min(1.0, score))
 
@@ -688,8 +781,8 @@ def _score_retrieval_strength(mitre_techniques: list[dict] | None) -> float:
     # approximately 0.70-0.72.  Raw similarities therefore rarely exceed that,
     # which would cap this component at ~70%.  We rescale so that the practical
     # ceiling maps to ~1.0, giving the retrieval component its full weight.
-    _SIMILARITY_FLOOR = 0.35   # below this we treat as noise
-    _SIMILARITY_CEILING = 0.72 # observed practical max for good matches
+    _SIMILARITY_FLOOR = 0.35  # below this we treat as noise
+    _SIMILARITY_CEILING = 0.72  # observed practical max for good matches
 
     scores = []
     for item in mitre_techniques or []:
@@ -707,7 +800,10 @@ def _score_retrieval_strength(mitre_techniques: list[dict] | None) -> float:
         if raw <= _SIMILARITY_FLOOR:
             scaled = 0.0
         else:
-            scaled = min(1.0, (raw - _SIMILARITY_FLOOR) / (_SIMILARITY_CEILING - _SIMILARITY_FLOOR))
+            scaled = min(
+                1.0,
+                (raw - _SIMILARITY_FLOOR) / (_SIMILARITY_CEILING - _SIMILARITY_FLOOR),
+            )
         scores.append(scaled)
 
     if not scores:
@@ -842,11 +938,11 @@ def _compute_evidence_consistency_bonus(
     # When multiple independent sources agree that an attack is present,
     # that is evidence consistency even without exact MITRE ID overlap.
     active_sources = 0
-    if retrieved_ids:                       # MITRE retrieval found matches
+    if retrieved_ids:  # MITRE retrieval found matches
         active_sources += 1
-    if detections:                          # Correlation rules fired
+    if detections:  # Correlation rules fired
         active_sources += 1
-    if rf_ids:                              # RF classified as attack (non-benign)
+    if rf_ids:  # RF classified as attack (non-benign)
         active_sources += 1
 
     # Signal agreement: 2 sources = partial bonus, 3 sources = full bonus
@@ -858,7 +954,9 @@ def _compute_evidence_consistency_bonus(
         signal_bonus = 0.0
 
     total_ratio = min(1.0, id_bonus + signal_bonus)
-    return _clamp01(min(CONFIDENCE_CONSISTENCY_BONUS, CONFIDENCE_CONSISTENCY_BONUS * total_ratio))
+    return _clamp01(
+        min(CONFIDENCE_CONSISTENCY_BONUS, CONFIDENCE_CONSISTENCY_BONUS * total_ratio)
+    )
 
 
 def _blend_threat_level(
@@ -874,9 +972,9 @@ def _blend_threat_level(
     high_conf_total = 0
     if rf_context:
         high_conf_total = (
-            int(rf_context.get("high_conf_anomaly_count", 0) or 0) +
-            int(rf_context.get("high_conf_security_count", 0) or 0) +
-            int(rf_context.get("high_conf_error_count", 0) or 0)
+            int(rf_context.get("high_conf_anomaly_count", 0) or 0)
+            + int(rf_context.get("high_conf_security_count", 0) or 0)
+            + int(rf_context.get("high_conf_error_count", 0) or 0)
         )
 
     # Conservative promotion: only boost when RF signal is strong and repeated.
@@ -898,9 +996,9 @@ def _blend_threats_found(
         return blended
 
     high_conf_total = (
-        int(rf_context.get("high_conf_anomaly_count", 0) or 0) +
-        int(rf_context.get("high_conf_security_count", 0) or 0) +
-        int(rf_context.get("high_conf_error_count", 0) or 0)
+        int(rf_context.get("high_conf_anomaly_count", 0) or 0)
+        + int(rf_context.get("high_conf_security_count", 0) or 0)
+        + int(rf_context.get("high_conf_error_count", 0) or 0)
     )
 
     if rf_risk_score >= 0.65:

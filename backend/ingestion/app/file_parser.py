@@ -8,10 +8,13 @@ ENCODINGS_TO_TRY = ("utf-8-sig", "utf-8", "utf-16", "cp1252", "latin-1")
 MAX_BYTES = 110 * 1024 * 1024
 MAX_ROWS = 500_000
 
+
 def _decode_bytes(file_bytes: bytes) -> tuple[str, str]:
     if len(file_bytes) > MAX_BYTES:
-        raise ValueError(f"File too large ({len(file_bytes)} bytes). Max is {MAX_BYTES}.")
-    
+        raise ValueError(
+            f"File too large ({len(file_bytes)} bytes). Max is {MAX_BYTES}."
+        )
+
     for enc in ENCODINGS_TO_TRY:
         try:
             return file_bytes.decode(enc), enc
@@ -20,9 +23,10 @@ def _decode_bytes(file_bytes: bytes) -> tuple[str, str]:
 
     raise ValueError("Unable to decode file with supported encodings.")
 
+
 def _looks_like_json(text: str) -> bool:
     stripped = text.lstrip()
-    if not (stripped.startswith("{") or stripped.startswith("[")):
+    if not (stripped.startswith(("{", "["))):
         return False
     try:
         json.loads(text[:4096])
@@ -36,13 +40,14 @@ def _looks_like_json(text: str) -> bool:
         except json.JSONDecodeError:
             return False
 
+
 def _looks_like_csv(text: str) -> tuple[bool, Any]:
-    sample = text[:16384] 
+    sample = text[:16384]
     try:
         dialect = csv.Sniffer().sniff(sample)
         if dialect.delimiter not in {",", ";", "\t", "|"}:
             return False, None
-       
+
         reader = csv.reader(io.StringIO(sample), dialect=dialect)
         row_lengths = [len(row) for _, row in zip(range(10), reader)]
         if len(set(row_lengths)) == 1 and row_lengths[0] > 1:
@@ -50,13 +55,15 @@ def _looks_like_csv(text: str) -> tuple[bool, Any]:
         return False, None
     except csv.Error:
         return False, None
-    
+
+
 def _looks_like_ndjson(text: str) -> bool:
-    lines = [l.strip() for l in text.splitlines() if l.strip()][:20]
+    lines = [line.strip() for line in text.splitlines() if line.strip()][:20]
     if len(lines) < 2:
         return False
-    valid = sum(1 for l in lines if _is_json_object_or_array(l))
-    return valid / len(lines) >= 0.8 
+    valid = sum(1 for line in lines if _is_json_object_or_array(line))
+    return valid / len(lines) >= 0.8
+
 
 def _is_json_object_or_array(line: str) -> bool:
     try:
@@ -65,18 +72,26 @@ def _is_json_object_or_array(line: str) -> bool:
     except json.JSONDecodeError:
         return False
 
+
 def detect_format(filename: str, content: str) -> str:
     ext = os.path.splitext(filename)[1].lower()
     scores = {"json": 0, "csv": 0, "text": 0}
 
-    ext_hints = {".json": "json", ".csv": "csv", ".txt": "text", ".log": "text", ".tsv": "csv", ".ndjson": "json"}
+    ext_hints = {
+        ".json": "json",
+        ".csv": "csv",
+        ".txt": "text",
+        ".log": "text",
+        ".tsv": "csv",
+        ".ndjson": "json",
+    }
     if ext in ext_hints:
         scores[ext_hints[ext]] += 1
 
     if _looks_like_json(content):
         scores["json"] += 2
-    
-    looks_csv, dialect = _looks_like_csv(content)
+
+    looks_csv, _dialect = _looks_like_csv(content)
     if looks_csv:
         scores["csv"] += 2
 
@@ -109,10 +124,12 @@ def _parse_csv(content: str) -> tuple[list[dict], list[str]]:
     try:
         dialect = csv.Sniffer().sniff(sample)
         if dialect.delimiter not in {",", ";", "\t", "|"}:
-            warnings.append(f"Unusual CSV delimiter detected: {repr(dialect.delimiter)}")
+            warnings.append(f"Unusual CSV delimiter detected: {dialect.delimiter!r}")
     except csv.Error:
         dialect = csv.excel
-        warnings.append("Could not detect CSV dialect, falling back to comma-delimited.")
+        warnings.append(
+            "Could not detect CSV dialect, falling back to comma-delimited."
+        )
 
     reader = csv.DictReader(io.StringIO(content), dialect=dialect)
     rows = []
@@ -169,6 +186,7 @@ def _parse_json_or_ndjson(content: str) -> tuple[list[dict], list[str]]:
 
         return entries, warnings
 
+
 def _parse_text(content: str) -> tuple[list[dict], list[str]]:
     rows = []
     for i, line in enumerate(content.splitlines(), start=1):
@@ -202,6 +220,7 @@ def parse_file_with_metadata(file_bytes: bytes, filename: str) -> dict:
             "warnings": warnings,
         },
     }
+
 
 def parse_file(file_bytes: bytes, filename: str) -> list[dict]:
     return parse_file_with_metadata(file_bytes, filename)["entries"]

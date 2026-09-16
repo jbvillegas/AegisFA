@@ -1,5 +1,4 @@
-from datetime import datetime
-from typing import Optional
+from datetime import datetime, timezone
 
 _TS_FIELDS = ("timestamp", "Timestamp", "time", "Time", "datetime", "received_at")
 _TS_FORMATS = (
@@ -11,7 +10,10 @@ _TS_FORMATS = (
     "%m/%d/%Y %H:%M:%S",
 )
 
-def parse_iso_string(raw: str) -> Optional[datetime]: #ISO 8601 only parser for strict timestamp fields
+
+def parse_iso_string(
+    raw: str,
+) -> datetime | None:  # ISO 8601 only parser for strict timestamp fields
     if not raw:
         return None
 
@@ -26,16 +28,16 @@ def parse_iso_string(raw: str) -> Optional[datetime]: #ISO 8601 only parser for 
     return None
 
 
-def parse_timestamp(entry: dict) -> Optional[datetime]:
+def parse_timestamp(entry: dict) -> datetime | None:
     raw = None
     for field in _TS_FIELDS:
-        if field in entry and entry[field]:
+        if entry.get(field):
             raw = str(entry[field])
             break
     if raw is None:
         return None
 
-    #ISO 8601
+    # ISO 8601
     try:
         dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         return dt
@@ -44,7 +46,10 @@ def parse_timestamp(entry: dict) -> Optional[datetime]:
 
     for fmt in _TS_FORMATS:
         try:
-            return datetime.strptime(raw, fmt)
+            parsed = datetime.strptime(raw, fmt)  # noqa: DTZ007
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
         except (ValueError, TypeError):
             continue
     return None

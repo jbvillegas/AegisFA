@@ -7,8 +7,6 @@ Usage:
 """
 
 import os
-import sys
-import json
 import time
 
 import requests
@@ -18,6 +16,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from supabase import create_client
+
 from app.openai_client import get_embedding
 
 STIX_URL = (
@@ -67,7 +66,9 @@ def extract_techniques(stix_bundle: dict) -> list[dict]:
         if source_ref not in mitigations_by_id:
             continue
 
-        mitigations_by_technique_ref.setdefault(target_ref, []).append(mitigations_by_id[source_ref])
+        mitigations_by_technique_ref.setdefault(target_ref, []).append(
+            mitigations_by_id[source_ref]
+        )
 
     for obj in objects:
         if obj.get("type") != "attack-pattern":
@@ -101,18 +102,21 @@ def extract_techniques(stix_bundle: dict) -> list[dict]:
                 line = f"{line}: {mitigation['description'][:320]}"
             mitigation_lines.append(line.strip())
 
-        techniques.append({
-            "technique_id": technique_id,
-            "name": obj.get("name", ""),
-            "description": obj.get("description", ""),
-            "tactic": ", ".join(tactics) if tactics else "unknown",
-            "platform": obj.get("x_mitre_platforms", []),
-            "detection": obj.get("x_mitre_detection", ""),
-            "mitigation": "\n".join([line for line in mitigation_lines if line]),
-            "data_sources": obj.get("x_mitre_data_sources", []),
-            "aliases": obj.get("x_mitre_aliases", []),
-            "url": url or f"https://attack.mitre.org/techniques/{technique_id.replace('.', '/')}",
-        })
+        techniques.append(
+            {
+                "technique_id": technique_id,
+                "name": obj.get("name", ""),
+                "description": obj.get("description", ""),
+                "tactic": ", ".join(tactics) if tactics else "unknown",
+                "platform": obj.get("x_mitre_platforms", []),
+                "detection": obj.get("x_mitre_detection", ""),
+                "mitigation": "\n".join([line for line in mitigation_lines if line]),
+                "data_sources": obj.get("x_mitre_data_sources", []),
+                "aliases": obj.get("x_mitre_aliases", []),
+                "url": url
+                or f"https://attack.mitre.org/techniques/{technique_id.replace('.', '/')}",
+            }
+        )
 
     return techniques
 

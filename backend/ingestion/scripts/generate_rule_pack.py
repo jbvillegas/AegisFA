@@ -16,8 +16,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import os
 import math
+import os
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -30,6 +30,7 @@ load_dotenv()
 from supabase import create_client
 
 from app.rf_training_mapping import get_mitre_for_class
+
 from .seed_rules import DEFAULT_RULES
 
 CANONICAL_FIELD_ALIASES: dict[str, list[str]] = {
@@ -203,7 +204,11 @@ DDOS_FAMILY_TECHNIQUES = [
     {"id": "T1498", "name": "Network Denial of Service", "tactic": "Impact"},
     {"id": "T1499", "name": "Endpoint Denial of Service", "tactic": "Impact"},
     {"id": "T1046", "name": "Network Service Scanning", "tactic": "Discovery"},
-    {"id": "T1071", "name": "Application Layer Protocol", "tactic": "Command and Control"},
+    {
+        "id": "T1071",
+        "name": "Application Layer Protocol",
+        "tactic": "Command and Control",
+    },
 ]
 
 DDOS_FIELD_TECHNIQUE_BUNDLES: dict[str, list[dict[str, str]]] = {
@@ -273,7 +278,9 @@ def _load_sample_csv_rows(sample_path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _load_sample_row(sample_file: str | None, sample_json: str | None) -> dict[str, Any]:
+def _load_sample_row(
+    sample_file: str | None, sample_json: str | None
+) -> dict[str, Any]:
     if sample_file and sample_json:
         raise ValueError("Provide only one of --sample-file or --sample-json")
 
@@ -331,14 +338,20 @@ def _load_sample_row(sample_file: str | None, sample_json: str | None) -> dict[s
             first_item = parsed[0]
             if isinstance(first_item, dict):
                 return first_item
-            raise ValueError("--sample-json list must contain a JSON object as the first item")
+            raise ValueError(
+                "--sample-json list must contain a JSON object as the first item"
+            )
 
         if not isinstance(parsed, dict):
-            raise ValueError("--sample-json must be a JSON object or a list containing one object")
+            raise ValueError(
+                "--sample-json must be a JSON object or a list containing one object"
+            )
 
         return parsed
 
-    raise ValueError("A sample payload row is required via --sample-file or --sample-json")
+    raise ValueError(
+        "A sample payload row is required via --sample-file or --sample-json"
+    )
 
 
 def _unwrap_payload(sample_row: dict[str, Any]) -> dict[str, Any]:
@@ -364,9 +377,11 @@ def _is_flow_dataset(sample_rows: list[dict[str, Any]]) -> bool:
     if not sample_rows:
         return False
 
-    sample_keys = {_normalize_key(key) for key in sample_rows[0].keys()}
+    sample_keys = {_normalize_key(key) for key in sample_rows[0]}
     flow_hits = len(sample_keys & FLOW_FIELD_HINTS)
-    return flow_hits >= 4 or ({"label", "destination_port", "flow_duration"} <= sample_keys)
+    return flow_hits >= 4 or (
+        {"label", "destination_port", "flow_duration"} <= sample_keys
+    )
 
 
 def _coerce_number(value: Any) -> float | None:
@@ -411,7 +426,7 @@ def _build_existence_rule(
     name: str,
     field: str,
     op: str,
-    value: float | int | str,
+    value: float | str,
     severity: str,
     base_confidence: float,
     mitre_technique: dict[str, Any],
@@ -435,7 +450,9 @@ def _build_existence_rule(
 
 
 def _build_ddos_family_mitre_techniques(primary_only: bool = False) -> dict[str, Any]:
-    techniques = DDOS_FAMILY_TECHNIQUES[:1] if primary_only else DDOS_FAMILY_TECHNIQUES[:3]
+    techniques = (
+        DDOS_FAMILY_TECHNIQUES[:1] if primary_only else DDOS_FAMILY_TECHNIQUES[:3]
+    )
     return {
         "techniques": techniques,
         "summary": (
@@ -446,9 +463,13 @@ def _build_ddos_family_mitre_techniques(primary_only: bool = False) -> dict[str,
     }
 
 
-def _build_flow_family_mitre_techniques(actual_field: str, candidate_severity: str) -> dict[str, Any]:
+def _build_flow_family_mitre_techniques(
+    actual_field: str, candidate_severity: str
+) -> dict[str, Any]:
     normalized_field = _normalize_key(actual_field)
-    techniques = DDOS_FIELD_TECHNIQUE_BUNDLES.get(normalized_field, [DDOS_FAMILY_TECHNIQUES[0]])
+    techniques = DDOS_FIELD_TECHNIQUE_BUNDLES.get(
+        normalized_field, [DDOS_FAMILY_TECHNIQUES[0]]
+    )
     return {
         "techniques": techniques,
         "summary": (
@@ -459,7 +480,9 @@ def _build_flow_family_mitre_techniques(actual_field: str, candidate_severity: s
     }
 
 
-def _build_flow_rule_pack(sample_rows: list[dict[str, Any]], name_prefix: str | None = None) -> dict[str, Any]:
+def _build_flow_rule_pack(
+    sample_rows: list[dict[str, Any]], name_prefix: str | None = None
+) -> dict[str, Any]:
     field_map = infer_field_map(sample_rows[0])
     numeric_values: dict[str, list[float]] = {}
     observed_labels: dict[str, int] = {}
@@ -480,7 +503,9 @@ def _build_flow_rule_pack(sample_rows: list[dict[str, Any]], name_prefix: str | 
 
     tailored_rules: list[dict[str, Any]] = []
     for candidate in FLOW_RULE_CANDIDATES:
-        actual_field = field_map.get(_normalize_key(candidate["field"]), candidate["field"])
+        actual_field = field_map.get(
+            _normalize_key(candidate["field"]), candidate["field"]
+        )
         values = numeric_values.get(actual_field, [])
         if not values:
             continue
@@ -494,7 +519,11 @@ def _build_flow_rule_pack(sample_rows: list[dict[str, Any]], name_prefix: str | 
             threshold = max(threshold, float(minimum))
 
         threshold_value: float | int
-        threshold_value = int(threshold) if float(threshold).is_integer() else round(float(threshold), 4)
+        threshold_value = (
+            int(threshold)
+            if float(threshold).is_integer()
+            else round(float(threshold), 4)
+        )
         rule = _build_existence_rule(
             name=candidate["name"],
             field=actual_field,
@@ -503,7 +532,9 @@ def _build_flow_rule_pack(sample_rows: list[dict[str, Any]], name_prefix: str | 
             severity=candidate["severity"],
             base_confidence=candidate["base_confidence"],
             mitre_technique={
-                **_build_flow_family_mitre_techniques(actual_field, candidate["severity"]),
+                **_build_flow_family_mitre_techniques(
+                    actual_field, candidate["severity"]
+                ),
                 "summary": f"High {actual_field} values relative to the dataset baseline.",
             },
         )
@@ -512,7 +543,9 @@ def _build_flow_rule_pack(sample_rows: list[dict[str, Any]], name_prefix: str | 
         tailored_rules.append(rule)
 
     if observed_labels:
-        for label, count in sorted(observed_labels.items(), key=lambda item: (-item[1], item[0])):
+        for label, count in sorted(
+            observed_labels.items(), key=lambda item: (-item[1], item[0])
+        ):
             if _normalize_key(label) in {"benign", "label"}:
                 continue
             mitre = get_mitre_for_class(label)
@@ -524,7 +557,8 @@ def _build_flow_rule_pack(sample_rows: list[dict[str, Any]], name_prefix: str | 
                 severity=mitre.get("severity", "medium"),
                 base_confidence=0.9,
                 mitre_technique={
-                    "techniques": mitre.get("techniques", []) or DDOS_FAMILY_TECHNIQUES[:1],
+                    "techniques": mitre.get("techniques", [])
+                    or DDOS_FAMILY_TECHNIQUES[:1],
                     "summary": mitre.get("summary", f"Observed attack label {label}"),
                     "severity": mitre.get("severity", "medium"),
                 },
@@ -534,13 +568,12 @@ def _build_flow_rule_pack(sample_rows: list[dict[str, Any]], name_prefix: str | 
             tailored_rules.append(rule)
 
     missing_fields = [
-        field for field in CANONICAL_FIELD_ALIASES.keys()
-        if field not in field_map
+        field for field in CANONICAL_FIELD_ALIASES if field not in field_map
     ]
 
     return {
         "dataset_type": "flow",
-        "sample_keys": sorted(list(sample_rows[0].keys())),
+        "sample_keys": sorted(sample_rows[0].keys()),
         "field_map": field_map,
         "missing_canonical_fields": missing_fields,
         "observed_labels": observed_labels,
@@ -572,7 +605,9 @@ def _looks_like_result(value: Any) -> bool:
 
 def _score_candidate(canonical: str, sample_key: str, sample_value: Any) -> int:
     normalized_key = _normalize_key(sample_key)
-    aliases = [_normalize_key(alias) for alias in CANONICAL_FIELD_ALIASES.get(canonical, [])]
+    aliases = [
+        _normalize_key(alias) for alias in CANONICAL_FIELD_ALIASES.get(canonical, [])
+    ]
     score = 0
 
     if normalized_key == canonical:
@@ -588,9 +623,15 @@ def _score_candidate(canonical: str, sample_key: str, sample_value: Any) -> int:
         score += 35
     elif canonical == "result" and _looks_like_result(sample_value):
         score += 45
-    elif canonical == "action" and isinstance(sample_value, str) and any(char.isalpha() for char in sample_value):
+    elif (
+        canonical == "action"
+        and isinstance(sample_value, str)
+        and any(char.isalpha() for char in sample_value)
+    ):
         score += 30
-    elif canonical in {"source_port", "destination_port"} and isinstance(sample_value, (int, float)):
+    elif canonical in {"source_port", "destination_port"} and isinstance(
+        sample_value, (int, float)
+    ):
         score += 35
     elif canonical == "protocol" and isinstance(sample_value, str):
         score += 25
@@ -617,7 +658,9 @@ def infer_field_map(sample_event: dict[str, Any]) -> dict[str, str]:
     return field_map
 
 
-def _remap_condition(condition: dict[str, Any], field_map: dict[str, str]) -> dict[str, Any]:
+def _remap_condition(
+    condition: dict[str, Any], field_map: dict[str, str]
+) -> dict[str, Any]:
     updated = deepcopy(condition)
     canonical_field = updated.get("field")
     if canonical_field in field_map:
@@ -665,7 +708,9 @@ def _remap_logic(logic: Any, field_map: dict[str, str]) -> Any:
     return remapped
 
 
-def _tailor_rule(rule: dict[str, Any], field_map: dict[str, str], name_prefix: str | None = None) -> dict[str, Any]:
+def _tailor_rule(
+    rule: dict[str, Any], field_map: dict[str, str], name_prefix: str | None = None
+) -> dict[str, Any]:
     tailored = deepcopy(rule)
     if name_prefix:
         tailored["name"] = f"{name_prefix} - {tailored['name']}"
@@ -712,7 +757,9 @@ def _collect_required_fields_from_logic(logic: Any) -> set[str]:
     return required
 
 
-def _rule_is_applicable(rule: dict[str, Any], available_canonical_fields: set[str]) -> bool:
+def _rule_is_applicable(
+    rule: dict[str, Any], available_canonical_fields: set[str]
+) -> bool:
     logic = rule.get("rule_logic") or {}
     required_fields = _collect_required_fields_from_logic(logic)
     if not required_fields:
@@ -720,7 +767,9 @@ def _rule_is_applicable(rule: dict[str, Any], available_canonical_fields: set[st
     return required_fields.issubset(available_canonical_fields)
 
 
-def build_rule_pack(sample_input: dict[str, Any] | list[dict[str, Any]], name_prefix: str | None = None) -> dict[str, Any]:
+def build_rule_pack(
+    sample_input: dict[str, Any] | list[dict[str, Any]], name_prefix: str | None = None
+) -> dict[str, Any]:
     if isinstance(sample_input, list):
         rows = [_unwrap_payload(row) for row in sample_input if isinstance(row, dict)]
         rows = [row for row in rows if isinstance(row, dict) and row]
@@ -738,16 +787,18 @@ def build_rule_pack(sample_input: dict[str, Any] | list[dict[str, Any]], name_pr
     applicable_defaults = [
         rule for rule in DEFAULT_RULES if _rule_is_applicable(rule, available_fields)
     ]
-    tailored_rules = [_tailor_rule(rule, field_map, name_prefix=name_prefix) for rule in applicable_defaults]
+    tailored_rules = [
+        _tailor_rule(rule, field_map, name_prefix=name_prefix)
+        for rule in applicable_defaults
+    ]
 
     missing_fields = [
-        field for field in CANONICAL_FIELD_ALIASES.keys()
-        if field not in field_map
+        field for field in CANONICAL_FIELD_ALIASES if field not in field_map
     ]
 
     return {
         "dataset_type": "raw_logs",
-        "sample_keys": sorted(list(event.keys())),
+        "sample_keys": sorted(event.keys()),
         "field_map": field_map,
         "missing_canonical_fields": missing_fields,
         "tailored_rules": tailored_rules,
@@ -762,33 +813,54 @@ def _apply_pack(org_id: str, pack: dict[str, Any]) -> list[dict[str, Any]]:
 
     applied_rules = []
     for rule in pack["tailored_rules"]:
-        response = supabase.table("correlation_rules").upsert(
+        response = (
+            supabase.table("correlation_rules")
+            .upsert(
+                {
+                    "org_id": org_id,
+                    "name": rule["name"],
+                    "mitre_technique": rule["mitre_technique"],
+                    "severity": rule["severity"],
+                    "rule_logic": rule["rule_logic"],
+                },
+                on_conflict="name",
+            )
+            .execute()
+        )
+        applied_rules.append(
             {
-                "org_id": org_id,
                 "name": rule["name"],
                 "mitre_technique": rule["mitre_technique"],
-                "severity": rule["severity"],
-                "rule_logic": rule["rule_logic"],
-            },
-            on_conflict="name",
-        ).execute()
-        applied_rules.append({
-            "name": rule["name"],
-            "mitre_technique": rule["mitre_technique"],
-            "status": "applied" if response.data is not None else "unknown",
-        })
+                "status": "applied" if response.data is not None else "unknown",
+            }
+        )
 
     return applied_rules
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate a correlation rule pack from a sample raw_logs payload row.")
-    parser.add_argument("--sample-file", help="Path to a JSON file containing one raw_logs row or payload dict.")
-    parser.add_argument("--sample-json", help="Inline JSON string containing one raw_logs row or payload dict.")
-    parser.add_argument("--output", help="Write the generated rule pack JSON to this path.")
-    parser.add_argument("--apply", action="store_true", help="Upsert the tailored rules into Supabase.")
+    parser = argparse.ArgumentParser(
+        description="Generate a correlation rule pack from a sample raw_logs payload row."
+    )
+    parser.add_argument(
+        "--sample-file",
+        help="Path to a JSON file containing one raw_logs row or payload dict.",
+    )
+    parser.add_argument(
+        "--sample-json",
+        help="Inline JSON string containing one raw_logs row or payload dict.",
+    )
+    parser.add_argument(
+        "--output", help="Write the generated rule pack JSON to this path."
+    )
+    parser.add_argument(
+        "--apply", action="store_true", help="Upsert the tailored rules into Supabase."
+    )
     parser.add_argument("--org-id", help="Org UUID for --apply mode.")
-    parser.add_argument("--name-prefix", help="Prefix added to tailored rule names when generating or applying.")
+    parser.add_argument(
+        "--name-prefix",
+        help="Prefix added to tailored rule names when generating or applying.",
+    )
 
     args = parser.parse_args()
 
@@ -800,7 +872,9 @@ def main() -> None:
     pack = build_rule_pack(sample_row, name_prefix=name_prefix)
 
     if args.output:
-        Path(args.output).write_text(json.dumps(pack, indent=2, sort_keys=True), encoding="utf-8")
+        Path(args.output).write_text(
+            json.dumps(pack, indent=2, sort_keys=True), encoding="utf-8"
+        )
 
     if args.apply:
         if not args.org_id:

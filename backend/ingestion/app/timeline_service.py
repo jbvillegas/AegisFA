@@ -1,20 +1,20 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional
 from uuid import UUID
 
 from . import supabase_client
-from .timestamp_utils import parse_timestamp, parse_iso_string
+from .timestamp_utils import parse_iso_string, parse_timestamp
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 500
 
+
 def get_file_timeline(
     file_id: str,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    severity: Optional[str] = None,
-    event_type: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
+    severity: str | None = None,
+    event_type: str | None = None,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict:
@@ -27,8 +27,9 @@ def get_file_timeline(
     items.extend(_fetch_analysis_detection_events(file_id=file_id))
     items.extend(_fetch_ai_narrative_events(file_id=file_id))
 
-    items = _apply_filters(items, start=start, end=end,
-                           severity=severity, event_type=event_type)
+    items = _apply_filters(
+        items, start=start, end=end, severity=severity, event_type=event_type
+    )
     items = _sort_chronologically(items)
 
     total = len(items)
@@ -46,19 +47,17 @@ def get_file_timeline(
             "file_id": file_id,
             "event_count": sum(1 for i in items if i["type"] == "event"),
             "detection_count": sum(1 for i in items if i["type"] == "detection"),
-            "ai_narrative_count": sum(
-                1 for i in items if i["type"] == "ai_narrative"
-            ),
+            "ai_narrative_count": sum(1 for i in items if i["type"] == "ai_narrative"),
         },
     }
 
 
 def get_org_timeline(
     org_id: str,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    severity: Optional[str] = None,
-    event_type: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
+    severity: str | None = None,
+    event_type: str | None = None,
     page: int = 1,
     page_size: int = DEFAULT_PAGE_SIZE,
 ) -> dict:
@@ -74,8 +73,9 @@ def get_org_timeline(
         items.extend(_fetch_analysis_detection_events(file_id=fid))
         items.extend(_fetch_ai_narrative_events(file_id=fid))
 
-    items = _apply_filters(items, start=start, end=end,
-                           severity=severity, event_type=event_type)
+    items = _apply_filters(
+        items, start=start, end=end, severity=severity, event_type=event_type
+    )
     items = _sort_chronologically(items)
 
     total = len(items)
@@ -94,19 +94,17 @@ def get_org_timeline(
             "file_count": len(file_ids),
             "event_count": sum(1 for i in items if i["type"] == "event"),
             "detection_count": sum(1 for i in items if i["type"] == "detection"),
-            "ai_narrative_count": sum(
-                1 for i in items if i["type"] == "ai_narrative"
-            ),
+            "ai_narrative_count": sum(1 for i in items if i["type"] == "ai_narrative"),
         },
     }
 
 
 def get_file_timeline_graph(
     file_id: str,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    severity: Optional[str] = None,
-    event_type: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
+    severity: str | None = None,
+    event_type: str | None = None,
     max_nodes: int = 120,
 ) -> dict:
     items = []
@@ -115,8 +113,9 @@ def get_file_timeline_graph(
     items.extend(_fetch_analysis_detection_events(file_id=file_id))
     items.extend(_fetch_ai_narrative_events(file_id=file_id))
 
-    items = _apply_filters(items, start=start, end=end,
-                           severity=severity, event_type=event_type)
+    items = _apply_filters(
+        items, start=start, end=end, severity=severity, event_type=event_type
+    )
     items = _sort_chronologically(items)
 
     graph = _build_timeline_graph(items, max_nodes=max_nodes)
@@ -133,10 +132,10 @@ def get_file_timeline_graph(
 
 def get_org_timeline_graph(
     org_id: str,
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    severity: Optional[str] = None,
-    event_type: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
+    severity: str | None = None,
+    event_type: str | None = None,
     max_nodes: int = 160,
 ) -> dict:
     file_ids = _get_org_file_ids(org_id)
@@ -148,8 +147,9 @@ def get_org_timeline_graph(
         items.extend(_fetch_analysis_detection_events(file_id=fid))
         items.extend(_fetch_ai_narrative_events(file_id=fid))
 
-    items = _apply_filters(items, start=start, end=end,
-                           severity=severity, event_type=event_type)
+    items = _apply_filters(
+        items, start=start, end=end, severity=severity, event_type=event_type
+    )
     items = _sort_chronologically(items)
 
     graph = _build_timeline_graph(items, max_nodes=max_nodes)
@@ -164,6 +164,7 @@ def get_org_timeline_graph(
         },
     }
 
+
 def _get_org_file_ids(org_id: str) -> list[str]:
     """Get all completed file IDs for an organization."""
     select_candidates = [
@@ -173,7 +174,11 @@ def _get_org_file_ids(org_id: str) -> list[str]:
 
     for select_expr in select_candidates:
         try:
-            query = supabase_client.table("log_files").select(select_expr).eq("org_id", org_id)
+            query = (
+                supabase_client.table("log_files")
+                .select(select_expr)
+                .eq("org_id", org_id)
+            )
             if "status" in select_expr:
                 query = query.eq("status", "completed")
             result = query.execute()
@@ -182,7 +187,11 @@ def _get_org_file_ids(org_id: str) -> list[str]:
                 return [str(r["id"]) for r in rows if r.get("id")]
 
             if rows:
-                return [str(r["id"]) for r in rows if r.get("status") == "completed" and r.get("id")]
+                return [
+                    str(r["id"])
+                    for r in rows
+                    if r.get("status") == "completed" and r.get("id")
+                ]
         except Exception:
             continue
 
@@ -190,8 +199,8 @@ def _get_org_file_ids(org_id: str) -> list[str]:
 
 
 def _fetch_raw_events(
-    file_id: Optional[str] = None,
-    org_id: Optional[str] = None,
+    file_id: str | None = None,
+    org_id: str | None = None,
 ) -> list[dict]:
     """Fetch raw_logs and convert each to a timeline item."""
     if not file_id and not org_id:
@@ -223,7 +232,7 @@ def _fetch_raw_events(
         return []
 
     items = []
-    for row in (result.data or []):
+    for row in result.data or []:
         payload_raw = row.get("payload")
         payload = payload_raw if isinstance(payload_raw, dict) else {}
 
@@ -236,26 +245,28 @@ def _fetch_raw_events(
         ts_str = ts.isoformat() if ts else None
         summary = _build_event_summary(payload)
 
-        items.append({
-            "id": row["id"],
-            "type": "event",
-            "timestamp": ts_str,
-            "timestamp_parsed": ts is not None,
-            "summary": summary,
-            "severity": None,
-            "source": {
-                "table": "raw_logs",
+        items.append(
+            {
                 "id": row["id"],
-                "file_id": row.get("file_id"),
-            },
-            "details": payload if payload else {"raw": payload_raw},
-        })
+                "type": "event",
+                "timestamp": ts_str,
+                "timestamp_parsed": ts is not None,
+                "summary": summary,
+                "severity": None,
+                "source": {
+                    "table": "raw_logs",
+                    "id": row["id"],
+                    "file_id": row.get("file_id"),
+                },
+                "details": payload if payload else {"raw": payload_raw},
+            }
+        )
     return items
 
 
 def _fetch_detection_events(
-    file_id: Optional[str] = None,
-    org_id: Optional[str] = None,
+    file_id: str | None = None,
+    org_id: str | None = None,
 ) -> list[dict]:
     """Fetch correlation detections and convert to timeline items."""
     if not file_id and not org_id:
@@ -287,7 +298,7 @@ def _fetch_detection_events(
         return []
 
     items = []
-    for row in (result.data or []):
+    for row in result.data or []:
         ts = parse_iso_string(row.get("created_at"))
         ts_str = ts.isoformat() if ts else None
 
@@ -295,24 +306,26 @@ def _fetch_detection_events(
         if matched_indices is None and row.get("event_ids"):
             matched_indices = []
 
-        items.append({
-            "id": row["id"],
-            "type": "detection",
-            "timestamp": ts_str,
-            "timestamp_parsed": ts is not None,
-            "summary": row.get("description", "Correlation detection"),
-            "severity": row.get("severity"),
-            "source": {
-                "table": "detections",
+        items.append(
+            {
                 "id": row["id"],
-                "file_id": row.get("file_id"),
-            },
-            "details": {
-                "rule_id": row.get("rule_id"),
-                "confidence": row.get("confidence"),
-                "matched_indices": matched_indices or [],
-            },
-        })
+                "type": "detection",
+                "timestamp": ts_str,
+                "timestamp_parsed": ts is not None,
+                "summary": row.get("description", "Correlation detection"),
+                "severity": row.get("severity"),
+                "source": {
+                    "table": "detections",
+                    "id": row["id"],
+                    "file_id": row.get("file_id"),
+                },
+                "details": {
+                    "rule_id": row.get("rule_id"),
+                    "confidence": row.get("confidence"),
+                    "matched_indices": matched_indices or [],
+                },
+            }
+        )
     return items
 
 
@@ -338,7 +351,7 @@ def _fetch_ai_narrative_events(file_id: str) -> list[dict]:
         return []
 
     items = []
-    for row in (result.data or []):
+    for row in result.data or []:
         timeline_entries = row.get("timeline") or []
         if not isinstance(timeline_entries, list):
             continue
@@ -352,20 +365,22 @@ def _fetch_ai_narrative_events(file_id: str) -> list[dict]:
             # Preserve relative timestamps (e.g. "shortly after") as-is
             ts_str = ts.isoformat() if ts else raw_ts if raw_ts else None
 
-            items.append({
-                "id": f"{analysis_id}__narrative_{idx}",
-                "type": "ai_narrative",
-                "timestamp": ts_str,
-                "timestamp_parsed": ts is not None,
-                "summary": entry.get("event", ""),
-                "severity": None,
-                "source": {
-                    "table": "analysis_results",
-                    "id": analysis_id,
-                    "file_id": row.get("file_id"),
-                },
-                "details": entry,
-            })
+            items.append(
+                {
+                    "id": f"{analysis_id}__narrative_{idx}",
+                    "type": "ai_narrative",
+                    "timestamp": ts_str,
+                    "timestamp_parsed": ts is not None,
+                    "summary": entry.get("event", ""),
+                    "severity": None,
+                    "source": {
+                        "table": "analysis_results",
+                        "id": analysis_id,
+                        "file_id": row.get("file_id"),
+                    },
+                    "details": entry,
+                }
+            )
     return items
 
 
@@ -391,7 +406,7 @@ def _fetch_analysis_detection_events(file_id: str) -> list[dict]:
         return []
 
     items = []
-    for row in (result.data or []):
+    for row in result.data or []:
         analysis_id = row.get("id")
         analysis_created_at = row.get("created_at")
         detections = row.get("correlation_detections") or []
@@ -402,46 +417,57 @@ def _fetch_analysis_detection_events(file_id: str) -> list[dict]:
             if not isinstance(detection, dict):
                 continue
 
-            raw_ts = detection.get("detected_at") or detection.get("created_at") or analysis_created_at
+            raw_ts = (
+                detection.get("detected_at")
+                or detection.get("created_at")
+                or analysis_created_at
+            )
             parsed_ts = parse_iso_string(raw_ts) if raw_ts else None
-            ts_str = parsed_ts.isoformat() if parsed_ts else (raw_ts if raw_ts else None)
+            ts_str = (
+                parsed_ts.isoformat() if parsed_ts else (raw_ts if raw_ts else None)
+            )
 
             detection_id = detection.get("detection_id") or f"{analysis_id}__corr_{idx}"
-            items.append({
-                "id": detection_id,
-                "type": "detection",
-                "timestamp": ts_str,
-                "timestamp_parsed": parsed_ts is not None,
-                "summary": detection.get("description") or detection.get("rule_name") or "Correlation detection",
-                "severity": detection.get("severity"),
-                "source": {
-                    "table": "analysis_results.correlation_detections",
-                    "id": analysis_id,
-                    "file_id": row.get("file_id"),
-                },
-                "details": {
-                    "rule_name": detection.get("rule_name"),
-                    "rule_id": detection.get("rule_id"),
-                    "mitre_technique": detection.get("mitre_technique"),
-                    "confidence": detection.get("confidence"),
-                    "matched_indices": detection.get("matched_event_indices") or detection.get("matched_indices") or [],
-                },
-            })
+            items.append(
+                {
+                    "id": detection_id,
+                    "type": "detection",
+                    "timestamp": ts_str,
+                    "timestamp_parsed": parsed_ts is not None,
+                    "summary": detection.get("description")
+                    or detection.get("rule_name")
+                    or "Correlation detection",
+                    "severity": detection.get("severity"),
+                    "source": {
+                        "table": "analysis_results.correlation_detections",
+                        "id": analysis_id,
+                        "file_id": row.get("file_id"),
+                    },
+                    "details": {
+                        "rule_name": detection.get("rule_name"),
+                        "rule_id": detection.get("rule_id"),
+                        "mitre_technique": detection.get("mitre_technique"),
+                        "confidence": detection.get("confidence"),
+                        "matched_indices": detection.get("matched_event_indices")
+                        or detection.get("matched_indices")
+                        or [],
+                    },
+                }
+            )
 
     return items
+
 
 def _build_event_summary(payload: dict) -> str:
     """Build a human-readable one-liner from raw log payload fields."""
     parts = []
 
-    user = (payload.get("username") or payload.get("User")
-            or payload.get("user"))
-    action = (payload.get("action") or payload.get("EventType")
-              or payload.get("event_type"))
-    result = (payload.get("result") or payload.get("Status")
-              or payload.get("status"))
-    ip = (payload.get("source_ip") or payload.get("src_ip")
-          or payload.get("IpAddress"))
+    user = payload.get("username") or payload.get("User") or payload.get("user")
+    action = (
+        payload.get("action") or payload.get("EventType") or payload.get("event_type")
+    )
+    result = payload.get("result") or payload.get("Status") or payload.get("status")
+    ip = payload.get("source_ip") or payload.get("src_ip") or payload.get("IpAddress")
 
     if user:
         parts.append(str(user))
@@ -457,10 +483,10 @@ def _build_event_summary(payload: dict) -> str:
 
 def _apply_filters(
     items: list[dict],
-    start: Optional[str] = None,
-    end: Optional[str] = None,
-    severity: Optional[str] = None,
-    event_type: Optional[str] = None,
+    start: str | None = None,
+    end: str | None = None,
+    severity: str | None = None,
+    event_type: str | None = None,
 ) -> list[dict]:
     """Apply query parameter filters to the merged timeline."""
     start_dt = parse_iso_string(start) if start else None
@@ -470,8 +496,9 @@ def _apply_filters(
     for item in items:
         # Time range filter
         if start_dt or end_dt:
-            item_ts = (parse_iso_string(item["timestamp"])
-                       if item.get("timestamp") else None)
+            item_ts = (
+                parse_iso_string(item["timestamp"]) if item.get("timestamp") else None
+            )
             if item_ts is not None:
                 if start_dt and item_ts < start_dt:
                     continue
@@ -480,14 +507,12 @@ def _apply_filters(
             # Items without parseable timestamps are kept (conservative)
 
         # Severity filter
-        if severity:
-            if item.get("severity") != severity:
-                continue
+        if severity and item.get("severity") != severity:
+            continue
 
         # Type filter
-        if event_type:
-            if item["type"] != event_type:
-                continue
+        if event_type and item["type"] != event_type:
+            continue
 
         filtered.append(item)
     return filtered
@@ -495,6 +520,7 @@ def _apply_filters(
 
 def _sort_chronologically(items: list[dict]) -> list[dict]:
     """Sort items by timestamp. Unparseable timestamps go last."""
+
     def sort_key(item):
         parsed = _parse_sortable_timestamp(item.get("timestamp"))
         if parsed is not None:
@@ -511,7 +537,7 @@ def _paginate(items: list[dict], page: int, page_size: int) -> list[dict]:
     return items[start_idx:end_idx]
 
 
-def _parse_sortable_timestamp(raw_ts: Optional[str]) -> Optional[str]:
+def _parse_sortable_timestamp(raw_ts: str | None) -> str | None:
     """Return a normalized UTC ISO timestamp suitable for ordering/comparison."""
     dt = parse_iso_string(raw_ts) if raw_ts else None
     if dt is None:
@@ -532,7 +558,9 @@ def _to_json_safe(value):
     if isinstance(value, tuple):
         return [_to_json_safe(item) for item in value]
     if isinstance(value, set):
-        return [_to_json_safe(item) for item in sorted(value, key=lambda item: str(item))]
+        return [
+            _to_json_safe(item) for item in sorted(value, key=lambda item: str(item))
+        ]
     if isinstance(value, datetime):
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc).isoformat()
@@ -566,7 +594,7 @@ def _sample_evenly(items: list[dict], count: int) -> list[dict]:
     picked = []
     used = set()
     for idx in range(count):
-        src_index = int(round(idx * step))
+        src_index = round(idx * step)
         src_index = min(max(src_index, 0), len(items) - 1)
         if src_index in used:
             continue
@@ -597,11 +625,14 @@ def _select_graph_items(items: list[dict], max_nodes: int) -> list[dict]:
         "ai_narrative": [item for item in items if item.get("type") == "ai_narrative"],
     }
     other_items = [
-        item for item in items
+        item
+        for item in items
         if item.get("type") not in {"event", "detection", "ai_narrative"}
     ]
 
-    present_kinds = [kind for kind in ("event", "detection", "ai_narrative") if groups[kind]]
+    present_kinds = [
+        kind for kind in ("event", "detection", "ai_narrative") if groups[kind]
+    ]
     base_allocations = {
         "event": int(limit * 0.40),
         "detection": int(limit * 0.35),
@@ -620,7 +651,9 @@ def _select_graph_items(items: list[dict], max_nodes: int) -> list[dict]:
             break
         target = max(base_allocations[kind], allocations[kind])
         cap = len(groups[kind])
-        add = min(max(target - allocations[kind], 0), cap - allocations[kind], remaining)
+        add = min(
+            max(target - allocations[kind], 0), cap - allocations[kind], remaining
+        )
         allocations[kind] += add
         remaining -= add
 
@@ -674,14 +707,16 @@ def _build_timeline_graph(items: list[dict], max_nodes: int = 120) -> dict:
     edges = []
 
     for item in limited_items:
-        nodes.append({
-            "id": _node_id(item),
-            "kind": item.get("type"),
-            "label": _node_label(item),
-            "severity": item.get("severity"),
-            "timestamp": item.get("timestamp"),
-            "file_id": (item.get("source") or {}).get("file_id"),
-        })
+        nodes.append(
+            {
+                "id": _node_id(item),
+                "kind": item.get("type"),
+                "label": _node_label(item),
+                "severity": item.get("severity"),
+                "timestamp": item.get("timestamp"),
+                "file_id": (item.get("source") or {}).get("file_id"),
+            }
+        )
 
     # Link timeline nodes chronologically when timestamps are parseable.
     timestamped_nodes = []
@@ -694,19 +729,23 @@ def _build_timeline_graph(items: list[dict], max_nodes: int = 120) -> dict:
     for idx in range(1, len(timestamped_nodes)):
         prev_item = timestamped_nodes[idx - 1][0]
         curr_item = timestamped_nodes[idx][0]
-        edges.append({
-            "id": f"chronological::{idx}",
-            "source": _node_id(prev_item),
-            "target": _node_id(curr_item),
-            "relation": "chronological",
-        })
+        edges.append(
+            {
+                "id": f"chronological::{idx}",
+                "source": _node_id(prev_item),
+                "target": _node_id(curr_item),
+                "relation": "chronological",
+            }
+        )
 
     # Link correlation detections to matched raw event nodes when indices are available.
     event_items = [item for item in limited_items if item.get("type") == "event"]
     event_by_index = {idx: item for idx, item in enumerate(event_items)}
     edge_counter = len(edges)
 
-    for detection_item in (item for item in limited_items if item.get("type") == "detection"):
+    for detection_item in (
+        item for item in limited_items if item.get("type") == "detection"
+    ):
         details = detection_item.get("details") or {}
         matched_indices = details.get("matched_indices") or []
         for matched_idx in matched_indices[:20]:
@@ -714,16 +753,22 @@ def _build_timeline_graph(items: list[dict], max_nodes: int = 120) -> dict:
             if not linked_event:
                 continue
             edge_counter += 1
-            edges.append({
-                "id": f"evidence::{edge_counter}",
-                "source": _node_id(detection_item),
-                "target": _node_id(linked_event),
-                "relation": "matched_event",
-            })
+            edges.append(
+                {
+                    "id": f"evidence::{edge_counter}",
+                    "source": _node_id(detection_item),
+                    "target": _node_id(linked_event),
+                    "relation": "matched_event",
+                }
+            )
 
     # Link AI narrative nodes to nearest prior event/detection by time.
-    narrative_items = [item for item in limited_items if item.get("type") == "ai_narrative"]
-    evidence_items = [item for item in limited_items if item.get("type") in {"event", "detection"}]
+    narrative_items = [
+        item for item in limited_items if item.get("type") == "ai_narrative"
+    ]
+    evidence_items = [
+        item for item in limited_items if item.get("type") in {"event", "detection"}
+    ]
     evidence_with_time = []
     for item in evidence_items:
         sortable_ts = _parse_sortable_timestamp(item.get("timestamp"))
@@ -740,12 +785,14 @@ def _build_timeline_graph(items: list[dict], max_nodes: int = 120) -> dict:
             continue
         source_item = previous[-1][0]
         edge_counter += 1
-        edges.append({
-            "id": f"narrative::{edge_counter}",
-            "source": _node_id(source_item),
-            "target": _node_id(narrative),
-            "relation": "narrative_context",
-        })
+        edges.append(
+            {
+                "id": f"narrative::{edge_counter}",
+                "source": _node_id(source_item),
+                "target": _node_id(narrative),
+                "relation": "narrative_context",
+            }
+        )
 
     return {
         "nodes": nodes,
