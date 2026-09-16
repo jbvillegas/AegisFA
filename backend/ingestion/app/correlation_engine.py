@@ -1,9 +1,7 @@
 import re
-import structlog
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Optional
 
+import structlog
 
 from . import supabase_client
 from .timestamp_utils import parse_timestamp as _parse_timestamp
@@ -29,7 +27,9 @@ _OPS = {
     "neq": lambda val, rule_val: val != rule_val,
     "in": lambda val, rule_val: val in rule_val,
     "contains": lambda val, rule_val: rule_val in str(val) if val else False,
-    "regex": lambda val, rule_val: _safe_regex_match(rule_val, str(val)) if val else False,
+    "regex": lambda val, rule_val: (
+        _safe_regex_match(rule_val, str(val)) if val else False
+    ),
     "exists": lambda val, _: val is not None,
 }
 
@@ -58,21 +58,32 @@ def _compare_numeric(val, rule_val, comparator):
     return comparator(left, right)
 
 
-_OPS.update({
-    "gt": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left > right),
-    "gte": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left >= right),
-    "lt": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left < right),
-    "lte": lambda val, rule_val: _compare_numeric(val, rule_val, lambda left, right: left <= right),
-})
+_OPS.update(
+    {
+        "gt": lambda val, rule_val: _compare_numeric(
+            val, rule_val, lambda left, right: left > right
+        ),
+        "gte": lambda val, rule_val: _compare_numeric(
+            val, rule_val, lambda left, right: left >= right
+        ),
+        "lt": lambda val, rule_val: _compare_numeric(
+            val, rule_val, lambda left, right: left < right
+        ),
+        "lte": lambda val, rule_val: _compare_numeric(
+            val, rule_val, lambda left, right: left <= right
+        ),
+    }
+)
+
 
 def _record_correlation_error(
     org_id: str,
     file_id: str,
     error_stage: str,
-    rule: Optional[dict] = None,
-    exc: Optional[Exception] = None,
-    details: Optional[dict] = None,
-    request_id: Optional[str] = None,
+    rule: dict | None = None,
+    exc: Exception | None = None,
+    details: dict | None = None,
+    request_id: str | None = None,
 ) -> None:
     safe_details = details.copy() if details else {}
     if request_id:
@@ -99,11 +110,12 @@ def _record_correlation_error(
             request_id=request_id,
         )
 
+
 def run_correlation(
     entries: list[dict],
     org_id: str,
     file_id: str,
-    request_id: Optional[str] = None,
+    request_id: str | None = None,
 ) -> list[dict]:
     context = {"org_id": org_id, "file_id": file_id}
     if request_id:
@@ -135,7 +147,7 @@ def run_correlation(
         if len(entries) > 50000:
             batch_size = 50000
             for i in range(0, len(entries), batch_size):
-                batch = entries[i:i + batch_size]
+                batch = entries[i : i + batch_size]
                 result = _evaluate_rule(
                     rule=rule,
                     entries=batch,
@@ -146,7 +158,9 @@ def run_correlation(
                     request_id=request_id,
                 )
                 if result is not None:
-                    result["matched_indices"] = [idx + i for idx in result["matched_indices"]]
+                    result["matched_indices"] = [
+                        idx + i for idx in result["matched_indices"]
+                    ]
                     detection_id = _save_detection(
                         org_id=org_id,
                         file_id=file_id,
@@ -157,15 +171,17 @@ def run_correlation(
                         request_id=request_id,
                     )
                     if detection_id:
-                        detections.append({
-                            "detection_id": detection_id,
-                            "rule_name": rule["name"],
-                            "mitre_technique": rule.get("mitre_technique", ""),
-                            "severity": rule.get("severity", "medium"),
-                            "confidence": result["confidence"],
-                            "matched_event_indices": result["matched_indices"],
-                            "description": result["description"],
-                        })
+                        detections.append(
+                            {
+                                "detection_id": detection_id,
+                                "rule_name": rule["name"],
+                                "mitre_technique": rule.get("mitre_technique", ""),
+                                "severity": rule.get("severity", "medium"),
+                                "confidence": result["confidence"],
+                                "matched_event_indices": result["matched_indices"],
+                                "description": result["description"],
+                            }
+                        )
         else:
             result = _evaluate_rule(
                 rule=rule,
@@ -185,24 +201,28 @@ def run_correlation(
                     request_id=request_id,
                 )
                 if detection_id:
-                    detections.append({
-                        "detection_id": detection_id,
-                        "rule_name": rule["name"],
-                        "mitre_technique": rule.get("mitre_technique", ""),
-                        "severity": rule.get("severity", "medium"),
-                        "confidence": result["confidence"],
-                        "matched_event_indices": result["matched_indices"],
-                        "description": result["description"],
-                    })
+                    detections.append(
+                        {
+                            "detection_id": detection_id,
+                            "rule_name": rule["name"],
+                            "mitre_technique": rule.get("mitre_technique", ""),
+                            "severity": rule.get("severity", "medium"),
+                            "confidence": result["confidence"],
+                            "matched_event_indices": result["matched_indices"],
+                            "description": result["description"],
+                        }
+                    )
 
     return detections
 
+
 _rule_cache = {}
+
 
 def _fetch_rules(org_id: str, file_id: str) -> list[dict]:
     if org_id in _rule_cache:
         return _rule_cache[org_id]
-    
+
     org_rules = (
         supabase_client.table("correlation_rules")
         .select("*")
@@ -220,26 +240,37 @@ def _fetch_rules(org_id: str, file_id: str) -> list[dict]:
     logger.info("Fetched correlation rules", org_id=org_id, rule_count=len(rules))
     return rules
 
+
 _EVALUATORS = {}
 
-def _validate_rule_logic(rule: dict) -> bool: 
+
+def _validate_rule_logic(rule: dict) -> bool:
     logic = rule.get("rule_logic", {})
     rule_type = logic.get("type")
 
     if rule_type not in _EVALUATORS:
         return False
-    
+
     if rule_type == "threshold":
         return "filter" in logic and "threshold" in logic
     elif rule_type == "sequence":
-        return "steps" in logic and isinstance(logic["steps"], list) and len(logic["steps"]) > 0
+        return (
+            "steps" in logic
+            and isinstance(logic["steps"], list)
+            and len(logic["steps"]) > 0
+        )
     elif rule_type == "distinct_value":
         return "distinct_field" in logic and "distinct_threshold" in logic
     elif rule_type == "existence":
-        return "filter" in logic and isinstance(logic["filter"], list) and len(logic["filter"]) > 0
+        return (
+            "filter" in logic
+            and isinstance(logic["filter"], list)
+            and len(logic["filter"]) > 0
+        )
     elif rule_type == "time_rate":
         return "rate_per_minute" in logic
     return False
+
 
 def _evaluate_rule(
     rule: dict,
@@ -248,8 +279,8 @@ def _evaluate_rule(
     file_id: str,
     batch_index: int = 0,
     batch_size: int = 0,
-    request_id: Optional[str] = None,
-) -> Optional[dict]:
+    request_id: str | None = None,
+) -> dict | None:
     context = {
         "org_id": org_id,
         "file_id": file_id,
@@ -318,6 +349,7 @@ def _evaluate_rule(
         log.exception("Error evaluating rule")
         return None
 
+
 def _save_detection(
     org_id: str,
     file_id: str,
@@ -325,9 +357,9 @@ def _save_detection(
     matched_indices: list[int],
     confidence: float,
     description: str,
-    request_id: Optional[str] = None,
-) -> Optional[str]:
-    
+    request_id: str | None = None,
+) -> str | None:
+
     context = {
         "org_id": org_id,
         "file_id": file_id,
@@ -338,16 +370,22 @@ def _save_detection(
     log = logger.bind(**context)
 
     try:
-        result = supabase_client.table("detections").insert({
-            "org_id": org_id,
-            "rule_id": rule["id"],
-            "file_id": file_id,
-            "matched_indices": matched_indices,
-            "confidence": round(confidence, 4),
-            "severity": rule.get("severity", "medium"),
-            "description": description,
-        }).execute()
-        return result.data[0]["id"] # Return the ID of the inserted detection
+        result = (
+            supabase_client.table("detections")
+            .insert(
+                {
+                    "org_id": org_id,
+                    "rule_id": rule["id"],
+                    "file_id": file_id,
+                    "matched_indices": matched_indices,
+                    "confidence": round(confidence, 4),
+                    "severity": rule.get("severity", "medium"),
+                    "description": description,
+                }
+            )
+            .execute()
+        )
+        return result.data[0]["id"]  # Return the ID of the inserted detection
     except Exception as exc:
         _record_correlation_error(
             org_id=org_id,
@@ -361,6 +399,7 @@ def _save_detection(
         log.exception("Failed to save detection")
         return None
 
+
 def _entry_matches_filter(entry: dict, filters: list[dict]) -> bool:
     for condition in filters:
         field = condition.get("field", "")
@@ -372,22 +411,19 @@ def _entry_matches_filter(entry: dict, filters: list[dict]) -> bool:
         op_fn = _OPS.get(op)
         if op_fn is None:
             return False
-        
+
         matches = op_fn(entry_val, rule_val)
         if negate:
             matches = not matches
         if not matches:
             return False
-        
+
     return True
 
 
-def _filter_entries(
-    entries: list[dict], filters: list[dict]
-) -> list[tuple[int, dict]]:
-    return [
-        (i, e) for i, e in enumerate(entries) if _entry_matches_filter(e, filters)
-    ]
+def _filter_entries(entries: list[dict], filters: list[dict]) -> list[tuple[int, dict]]:
+    return [(i, e) for i, e in enumerate(entries) if _entry_matches_filter(e, filters)]
+
 
 def _group_entries(
     indexed_entries: list[tuple[int, dict]],
@@ -399,8 +435,9 @@ def _group_entries(
         groups[key].append((idx, entry))
     return dict(groups)
 
+
 def _entries_within_window(
-    indexed_entries: list[tuple[int, dict]], window_seconds: Optional[int]
+    indexed_entries: list[tuple[int, dict]], window_seconds: int | None
 ) -> bool:
 
     if window_seconds is None:
@@ -408,17 +445,22 @@ def _entries_within_window(
     timestamps = [_parse_timestamp(e) for _, e in indexed_entries]
     timestamps = [t for t in timestamps if t is not None]
     if len(timestamps) < 2:
-        return True 
+        return True
     span = (max(timestamps) - min(timestamps)).total_seconds()
     return span <= window_seconds
 
-def _compute_confidence(base: float, actual: int, threshold: int, severity: str = "medium") -> float:
-    
+
+def _compute_confidence(
+    base: float, actual: int, threshold: int, severity: str = "medium"
+) -> float:
+
     if threshold <= 0:
         return min(base, 1.0)
-    
+
     ratio = actual / threshold
-    severity_multiplier = {"critical": 1.2, "high": 1.1, "medium": 1.0, "low":0.8}.get(severity, 1.0)
+    severity_multiplier = {"critical": 1.2, "high": 1.1, "medium": 1.0, "low": 0.8}.get(
+        severity, 1.0
+    )
 
     if ratio >= 2.0:
         adjusted = base * 0.8 + 0.2
@@ -427,9 +469,10 @@ def _compute_confidence(base: float, actual: int, threshold: int, severity: str 
     else:
         adjusted = base * ratio
 
-    return min(adjusted * severity_multiplier, 1.0) 
+    return min(adjusted * severity_multiplier, 1.0)
 
-def _evaluate_threshold(logic: dict, entries: list[dict]) -> Optional[dict]:
+
+def _evaluate_threshold(logic: dict, entries: list[dict]) -> dict | None:
     filters = logic.get("filter", [])
     group_by = logic.get("group_by", [])
     threshold = logic.get("threshold", 1)
@@ -440,10 +483,7 @@ def _evaluate_threshold(logic: dict, entries: list[dict]) -> Optional[dict]:
     if not matched:
         return None
 
-    if group_by:
-        groups = _group_entries(matched, group_by)
-    else:
-        groups = {"_all": matched}
+    groups = _group_entries(matched, group_by) if group_by else {"_all": matched}
 
     for group_key, group_entries in groups.items():
         if not _entries_within_window(group_entries, window):
@@ -462,7 +502,7 @@ def _evaluate_threshold(logic: dict, entries: list[dict]) -> Optional[dict]:
     return None
 
 
-def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
+def _evaluate_sequence(logic: dict, entries: list[dict]) -> dict | None:
     steps = logic.get("steps", [])
     group_by = logic.get("group_by", [])
     window = logic.get("window_seconds")
@@ -528,7 +568,7 @@ def _evaluate_sequence(logic: dict, entries: list[dict]) -> Optional[dict]:
     return None
 
 
-def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> Optional[dict]:
+def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> dict | None:
     filters = logic.get("filter", [])
     group_by = logic.get("group_by", [])
     distinct_field = logic.get("distinct_field", "")
@@ -540,10 +580,7 @@ def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> Optional[dict]
     if not matched:
         return None
 
-    if group_by:
-        groups = _group_entries(matched, group_by)
-    else:
-        groups = {"_all": matched}
+    groups = _group_entries(matched, group_by) if group_by else {"_all": matched}
 
     for group_key, group_entries in groups.items():
         if not _entries_within_window(group_entries, window):
@@ -564,7 +601,8 @@ def _evaluate_distinct_value(logic: dict, entries: list[dict]) -> Optional[dict]
             }
     return None
 
-def _evaluate_existence(logic: dict, entries: list[dict]) -> Optional[dict]:
+
+def _evaluate_existence(logic: dict, entries: list[dict]) -> dict | None:
     filters = logic.get("filter", [])
     base_conf = logic.get("base_confidence", 0.75)
 
@@ -580,7 +618,7 @@ def _evaluate_existence(logic: dict, entries: list[dict]) -> Optional[dict]:
     }
 
 
-def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
+def _evaluate_time_rate(logic: dict, entries: list[dict]) -> dict | None:
     filters = logic.get("filter", [])
     group_by = logic.get("group_by", [])
     rate_per_minute = logic.get("rate_per_minute", 10)
@@ -590,10 +628,7 @@ def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
     if not matched:
         return None
 
-    if group_by:
-        groups = _group_entries(matched, group_by)
-    else:
-        groups = {"_all": matched}
+    groups = _group_entries(matched, group_by) if group_by else {"_all": matched}
 
     for group_key, group_entries in groups.items():
         # Parse timestamps and sort
@@ -616,7 +651,9 @@ def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
             indices = [i for i, _, _ in timed]
             return {
                 "matched_indices": indices,
-                "confidence": _compute_confidence(base_conf, int(rate), rate_per_minute),
+                "confidence": _compute_confidence(
+                    base_conf, int(rate), rate_per_minute
+                ),
                 "description": (
                     f"Time rate rule triggered: {rate:.1f} events/min "
                     f"(threshold: {rate_per_minute}/min) for group {group_key}"
@@ -624,16 +661,17 @@ def _evaluate_time_rate(logic: dict, entries: list[dict]) -> Optional[dict]:
             }
     return None
 
-def _evaluate_composite(logic: dict, entries: list[dict]) -> Optional[dict]:
-    
+
+def _evaluate_composite(logic: dict, entries: list[dict]) -> dict | None:
+
     operator = logic.get("operator", "AND")  # AND or OR
     sub_rules = logic.get("rules", [])
-    
+
     results = []
     for sub_rule in sub_rules:
         result = _evaluate_rule(sub_rule, entries)
         results.append(result)
-    
+
     if operator == "AND":
         if all(r is not None for r in results):
             # Merge all matched indices
@@ -643,20 +681,20 @@ def _evaluate_composite(logic: dict, entries: list[dict]) -> Optional[dict]:
             return {
                 "matched_indices": list(all_indices),
                 "confidence": sum(r["confidence"] for r in results) / len(results),
-                "description": f"Composite AND rule: all {len(sub_rules)} conditions matched"
+                "description": f"Composite AND rule: all {len(sub_rules)} conditions matched",
             }
-    elif operator == "OR":
-        if any(r is not None for r in results):
-            all_indices = set()
-            for r in results:
-                if r is not None:
-                    all_indices.update(r["matched_indices"])
-            return {
-                "matched_indices": list(all_indices),
-                "confidence": max(r["confidence"] for r in results if r is not None),
-                "description": f"Composite OR rule: at least one of {len(sub_rules)} conditions matched"
-            }
+    elif operator == "OR" and any(r is not None for r in results):
+        all_indices = set()
+        for r in results:
+            if r is not None:
+                all_indices.update(r["matched_indices"])
+        return {
+            "matched_indices": list(all_indices),
+            "confidence": max(r["confidence"] for r in results if r is not None),
+            "description": f"Composite OR rule: at least one of {len(sub_rules)} conditions matched",
+        }
     return None
+
 
 _EVALUATORS = {
     "threshold": _evaluate_threshold,

@@ -1,9 +1,10 @@
 from flask import Flask
-from supabase import create_client, Client
-from .logging_config import setup_logging
+from supabase import Client, create_client
+
 from .config import Settings
 
 supabase_client: Client = None
+
 
 def create_app(settings: Settings | None = None):
     settings = settings or Settings.from_env()
@@ -22,6 +23,7 @@ def create_app(settings: Settings | None = None):
     )
 
     from .routes import main
+
     app.register_blueprint(main)
 
     return app

@@ -4,6 +4,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 _model = None
 _tokenizer = None
 
+
 def load_model():
     global _model, _tokenizer
     if _model is None:

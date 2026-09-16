@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 import os
-
+from dataclasses import dataclass
 
 DEFAULT_DEVELOPMENT_SECRET = "dev-only-change-me"
 
@@ -42,7 +41,9 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
-        environment = os.getenv("APP_ENV", os.getenv("FLASK_ENV", "development")).strip().lower()
+        environment = (
+            os.getenv("APP_ENV", os.getenv("FLASK_ENV", "development")).strip().lower()
+        )
         secret_key = os.getenv("SECRET_KEY", "")
         if not secret_key:
             if environment == "development":
@@ -50,12 +51,16 @@ class Settings:
             else:
                 raise RuntimeError("SECRET_KEY must be set outside development.")
         if secret_key == DEFAULT_DEVELOPMENT_SECRET and environment != "development":
-            raise RuntimeError("The development SECRET_KEY cannot be used outside development.")
+            raise RuntimeError(
+                "The development SECRET_KEY cannot be used outside development."
+            )
 
         supabase_url = os.getenv("SUPABASE_URL", "").strip()
         supabase_service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
         if not supabase_url or not supabase_service_role_key:
-            raise RuntimeError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set.")
+            raise RuntimeError(
+                "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set."
+            )
 
         debug = _env_bool("DEBUG", environment == "development")
         if environment != "development" and debug:
