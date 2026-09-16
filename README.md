@@ -1,34 +1,31 @@
+
 # AegisFA
 
 **AI-Powered Forensic Assistant for Security Operations Centers**
-
 <p align="center">
-  <img src="frontend/src/assets/A.png" alt="Project Logo" width="200" height="200">
+  <img src="frontend/src/assets/A.png" alt="AegisFA logo" width="160">
 </p>
-
-AegisFA is an AI-assisted security analysis platform that helps SOC analysts investigate security events through automated log processing, threat classification, event correlation, and MITRE ATT&CK mapping.
+AegisFA is an AI-assisted security analysis platform that helps SOC analysts investigate security events through log analysis, threat classification, event correlation, and MITRE ATT&CK mapping.
 
 ## Features
 
-- **Log analysis:** Supports CSV, JSON, NDJSON, and plain text files, including chunked uploads up to 2 GB.
-- **Threat classification:** Random Forest model trained on CICIDS2017/2019 datasets.
-- **Event correlation:** Configurable rules for identifying suspicious activity.
-- **MITRE ATT&CK mapping:** Retrieval-augmented generation (RAG) for matching threats to known techniques.
-- **AI-assisted investigation:** Generates threat insights, incident summaries, investigation guides, and remediation plans.
-- **Incident management:** Collaborative workspace for incidents, tasks, and event tracking.
-- **Multi-tenant access control:** Organization-scoped data access with role-based permissions.
+- Multi-format log ingestion with automatic source detection.
+- Machine-learning threat classification using Random Forest.
+- Configurable rule-based event correlation.
+- MITRE ATT&CK technique mapping using retrieval-augmented generation (RAG).
+- AI-generated threat insights, investigation guides, and remediation plans.
+- Incident management and collaborative workflows.
+- Organization-based access control and background analysis jobs.
 
-## Architecture
-
-AegisFA consists of three main components:
+## Technology Stack
 
 | Component | Technologies |
 |---|---|
 | Frontend | React 18, Vite 5 |
-| Backend | Python 3.11, Flask 3.1 |
-| Database and services | Supabase, PostgreSQL, pgvector |
-
-The analysis pipeline combines machine learning, rule-based correlation, semantic retrieval, and LLM-generated insights.
+| Backend | Python 3.11, Flask 3.1, Gunicorn |
+| Database | Supabase, PostgreSQL, pgvector |
+| AI | scikit-learn, OpenAI API |
+| Deployment | Docker Compose |
 
 ## Getting Started
 
@@ -48,27 +45,16 @@ git clone https://github.com/jbvillegas/AegisFA.git
 cd AegisFA
 ```
 
-Create the environment files:
+Configure the required environment variables in:
 
-**`backend/.env`**
+- `backend/.env`
+- `frontend/.env`
 
-```env
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
-OPENAI_API_KEY=your-openai-api-key
-```
+See the [environment configuration](#environment-configuration) below.
 
-**`frontend/.env`**
+Apply the SQL migrations in `database/` to your Supabase project in numerical order.
 
-```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-VITE_API_BASE_URL=http://localhost:5001
-```
-
-Apply the SQL migrations in `database/` to your Supabase project, in numerical order.
-
-Build and start the application:
+Start the application:
 
 ```bash
 docker-compose up --build
@@ -86,13 +72,33 @@ Stop the application:
 docker-compose down
 ```
 
+## Environment Configuration
+
+**`backend/.env`**
+
+```env
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+OPENAI_API_KEY=your-openai-api-key
+```
+
+**`frontend/.env`**
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_API_BASE_URL=http://localhost:5001
+```
+
+Never commit credentials or API keys to the repository.
+
 ## Usage
 
 1. Sign in using GitHub OAuth.
 2. Upload a supported log file.
-3. Review the analysis results, including threat classifications, correlated events, and MITRE ATT&CK mappings.
+3. Review threat classifications, correlated events, and MITRE ATT&CK matches.
 4. Explore AI-generated investigation guidance and remediation recommendations.
-5. Manage incidents and assign tasks through the collaborative workspace.
+5. Create incidents and assign tasks in the collaborative workspace.
 
 ## Machine Learning
 
@@ -100,34 +106,19 @@ The Random Forest classifier is trained on the [CICIDS2017](https://www.unb.ca/c
 
 The project reports a weighted precision of 91.5% on its held-out test set. Performance on real-world security logs may differ.
 
-## Security
-
-AegisFA uses JWT authentication, role-based access control, organization-scoped authorization, and PostgreSQL Row-Level Security (RLS).
-
-**Security considerations:**
-
-- Keep all service-role keys and API credentials private.
-- Do not upload sensitive forensic data to public environments.
-- Review authorization policies before deployment.
-- An independent security audit has not been performed.
-
 ## Limitations
 
-- Analysis is currently file-based; real-time streaming is not supported.
-- AI-generated outputs may vary and require analyst validation.
+- Analysis is file-based; real-time streaming is not supported.
+- AI-generated outputs require analyst validation.
 - Automated remediation execution is not supported.
-- The project does not currently include a comprehensive automated regression test suite.
+- An independent security audit has not been performed.
 
 ## Contributing
 
-Contributions are welcome. Please review the [Contributing Guidelines](CONTRIBUTING.md) before submitting changes.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 Report bugs and request features through [GitHub Issues](https://github.com/jbvillegas/AegisFA/issues).
 
 ## License
 
 Distributed under the [MIT License](LICENSE).
-
----
-
-**Developed by [Joaquin Baltasar Villegas](https://github.com/jbvillegas)**
