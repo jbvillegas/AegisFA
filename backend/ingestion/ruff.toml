@@ -1,0 +1,16 @@
+[lint]
+select = ["E4", "E7", "E9", "F", "I", "SIM", "RUF", "BLE", "S", "DTZ"]
+ignore = [
+]
+
+[lint.per-file-ignores]
+"app/config.py" = ["S105"]
+"app/kaggle.py" = ["BLE001"]
+"app/log_classifier.py" = ["BLE001", "S110", "S301"]
+"app/routes.py" = ["BLE001", "S110", "S112"]
+"app/service.py" = ["BLE001"]
+"app/storage.py" = ["BLE001"]
+"app/timeline_service.py" = ["BLE001", "S112"]
+"run.py" = ["S104"]
+"scripts/*.py" = ["E402"]
+"tests/*.py" = ["S101", "S108"]
