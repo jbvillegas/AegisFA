@@ -1,0 +1,18 @@
+"""Route configuration constants."""
+
+import os
+
+RAW_LOG_INSERT_BATCH_SIZE = 200
+_VALID_SEVERITIES = {"low", "medium", "high", "critical"}
+BACKGROUND_PARSE_MAX_ROWS = int(os.getenv("BACKGROUND_PARSE_MAX_ROWS", "200000"))
+SUPABASE_RETRY_ATTEMPTS = int(os.getenv("SUPABASE_RETRY_ATTEMPTS", "4"))
+SUPABASE_RETRY_BASE_DELAY_SECONDS = float(
+    os.getenv("SUPABASE_RETRY_BASE_DELAY_SECONDS", "0.8")
+)
+MAX_UPLOAD_PART_BYTES = int(os.getenv("MAX_UPLOAD_PART_BYTES", str(16 * 1024 * 1024)))
+MAX_UPLOAD_SESSION_ASSEMBLY_BYTES = int(
+    os.getenv("MAX_UPLOAD_SESSION_ASSEMBLY_BYTES", str(2 * 1024 * 1024 * 1024))
+)
+UPLOAD_SESSION_TTL_SECONDS = int(os.getenv("UPLOAD_SESSION_TTL_SECONDS", "3600"))
+MAX_UPLOAD_SESSIONS = int(os.getenv("MAX_UPLOAD_SESSIONS", "100"))
+_PUBLIC_ENDPOINTS = {"main.root", "main.health"}

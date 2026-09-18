@@ -5,6 +5,7 @@ ignore = [
 
 [lint.per-file-ignores]
 "app/config.py" = ["S105"]
+"app/analysis_pipeline.py" = ["BLE001"]
 "app/kaggle.py" = ["BLE001"]
 "app/log_classifier.py" = ["BLE001", "S110", "S301"]
 "app/routes.py" = ["BLE001", "S110", "S112"]
