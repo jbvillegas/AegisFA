@@ -3,7 +3,7 @@
 from flask import g, request
 from time import perf_counter
 
-from backend.ingestion.app.routes.constants import _PUBLIC_ENDPOINTS
+from .constants import _PUBLIC_ENDPOINTS
 from . import main, supabase_client
 from .utils import *
 from .utils import _error_response
