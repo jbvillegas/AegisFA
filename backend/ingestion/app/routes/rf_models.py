@@ -6,7 +6,15 @@ from pathlib import Path
 from flask import jsonify, request
 from uuid import uuid4
 from . import main, supabase_client
-from .utils import *  # noqa: F401,F403
+from .utils import *
+from .utils import _require_roles
+from .utils import _request_logger
+from .utils import _enforce_org_scope
+from .utils import _error_response
+from .utils import _auth_user_id
+from .utils import _get_activation_status
+from .utils import _safe_update_training_run
+from .utils import _get_request_id  # noqa: F401,F403
 
 def _dataset_to_model_label(dataset_name: str | None) -> str:
     raw_value = str(dataset_name or "").strip().lower()
