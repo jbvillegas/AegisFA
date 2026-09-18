@@ -2,7 +2,18 @@
 
 from flask import jsonify, request
 from . import main, supabase_client
-from .utils import *  # noqa: F401,F403
+from .utils import *
+from .utils import _request_logger
+from .utils import _require_roles
+from .utils import _error_response
+from .utils import _is_uuid
+from .utils import _enforce_file_scope
+from .utils import _get_mitre_links_for_analysis
+from .utils import _enforce_org_scope
+from .utils import _store_analysis_result
+from .utils import _get_request_id
+from .utils import _build_actionable_insights_payload
+from .utils import _insert_raw_logs_in_batches  # noqa: F401,F403
 
 @main.route("/analysis/<file_id>", methods=["GET"])
 def get_analysis(file_id):
