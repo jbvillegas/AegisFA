@@ -3,6 +3,7 @@ from collections import defaultdict
 
 import structlog
 
+
 from . import supabase_client
 from .timestamp_utils import parse_timestamp as _parse_timestamp
 
@@ -124,7 +125,7 @@ def run_correlation(
 
     if len(entries) > 100000:
         log.warning(
-            "Large dataset; performance may be slow",
+            "Large dataset; performance may take some time",
             entry_count=len(entries),
         )
 
@@ -141,13 +142,23 @@ def run_correlation(
         log.exception("Failed to fetch correlation rules")
         return []
 
-    detections = []
+    detections: list[dict] = []
+    batch_size = 50000
+    overlap_size = 1000
 
     for rule in rules:
-        if len(entries) > 50000:
-            batch_size = 50000
+        if len(entries) > batch_size:
             for i in range(0, len(entries), batch_size):
-                batch = entries[i : i + batch_size]
+                end = min(i + batch_size, len(entries))
+
+
+                if i > 0:
+                    offset = max(0, i - overlap_size)
+                else:
+                    offset = 0
+
+                batch = entries[offset:end]
+
                 result = _evaluate_rule(
                     rule=rule,
                     entries=batch,
@@ -157,31 +168,37 @@ def run_correlation(
                     batch_size=batch_size,
                     request_id=request_id,
                 )
-                if result is not None:
-                    result["matched_indices"] = [
-                        idx + i for idx in result["matched_indices"]
-                    ]
-                    detection_id = _save_detection(
-                        org_id=org_id,
-                        file_id=file_id,
-                        rule=rule,
-                        matched_indices=result["matched_indices"],
-                        confidence=result["confidence"],
-                        description=result["description"],
-                        request_id=request_id,
+                if result is None:
+                    continue
+
+                mapped_indices = [idx + offset for idx in result["matched_indices"]]
+
+                if all(idx < i for idx in mapped_indices):
+                    continue
+
+                result["matched_indices"] = mapped_indices
+
+                detection_id = _save_detection(
+                    org_id=org_id,
+                    file_id=file_id,
+                    rule=rule,
+                    matched_indices=result["matched_indices"],
+                    confidence=result["confidence"],
+                    description=result["description"],
+                    request_id=request_id,
+                )
+                if detection_id:
+                    detections.append(
+                        {
+                            "detection_id": detection_id,
+                            "rule_name": rule["name"],
+                            "mitre_technique": rule.get("mitre_technique", ""),
+                            "severity": rule.get("severity", "medium"),
+                            "confidence": result["confidence"],
+                            "matched_event_indices": result["matched_indices"],
+                            "description": result["description"],
+                        }
                     )
-                    if detection_id:
-                        detections.append(
-                            {
-                                "detection_id": detection_id,
-                                "rule_name": rule["name"],
-                                "mitre_technique": rule.get("mitre_technique", ""),
-                                "severity": rule.get("severity", "medium"),
-                                "confidence": result["confidence"],
-                                "matched_event_indices": result["matched_indices"],
-                                "description": result["description"],
-                            }
-                        )
         else:
             result = _evaluate_rule(
                 rule=rule,
