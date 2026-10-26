@@ -33,6 +33,7 @@ from .constants import (
     MAX_UPLOAD_PART_BYTES,
     MAX_UPLOAD_SESSIONS,
     MAX_UPLOAD_SESSION_ASSEMBLY_BYTES,
+    RF_MIN_ACTIVATION_PRECISION,
     RAW_LOG_INSERT_BATCH_SIZE,
     SUPABASE_RETRY_ATTEMPTS,
     SUPABASE_RETRY_BASE_DELAY_SECONDS,
@@ -553,7 +554,7 @@ def _build_actionable_insights_payload(
             "details": rf_results[:50],
         }
 
-    from .insights_generator import get_insights_generator
+    from ..insights_generator import get_insights_generator
 
     insights_generator = get_insights_generator()
     insights = insights_generator.generate_threat_insights(threats)
@@ -632,6 +633,7 @@ def _build_rf_context(rf_results=None) -> dict:
 def _get_activation_status(
     validation_metrics: dict | None, threshold: float
 ) -> tuple[str, float, str | None]:
+    threshold = max(float(threshold), RF_MIN_ACTIVATION_PRECISION)
     precision_weighted = float(
         (validation_metrics or {}).get("precision_weighted", 0.0) or 0.0
     )

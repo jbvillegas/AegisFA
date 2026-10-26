@@ -7,9 +7,9 @@ from uuid import uuid4
 
 from flask import jsonify, request
 
+from ..storage import BUCKET_NAME, upload_binary
 from . import main, supabase_client
 from .constants import (
-    BUCKET_NAME,
     MAX_UPLOAD_PART_BYTES,
     MAX_UPLOAD_SESSIONS,
     MAX_UPLOAD_SESSION_ASSEMBLY_BYTES,
@@ -26,7 +26,6 @@ from .utils import (
     _require_roles,
     _upload_sessions,
     _upload_sessions_lock,
-    upload_binary,
 )
 
 @main.route("/upload-sessions/init", methods=["POST"])

@@ -7,6 +7,7 @@ from flask import Blueprint
 
 from .. import supabase_client as _supabase_client
 
+
 main = Blueprint("main", __name__)
 import structlog
 logger = structlog.get_logger(__name__)
