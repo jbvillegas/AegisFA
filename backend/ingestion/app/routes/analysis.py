@@ -1,8 +1,11 @@
 """Route implementations for the ingestion service."""
 
 from flask import jsonify, request
+
+from ..storage import download_file
+from ..file_parser import parse_file
 from . import main, supabase_client
-from .utils import *
+from app.analysis_pipeline import run_analysis_pipeline
 from .utils import _request_logger
 from .utils import _require_roles
 from .utils import _error_response
